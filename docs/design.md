@@ -9,7 +9,7 @@
 
 Implement a Coding Agent, based on the following cursor instruction:
 
-```
+````
 API Parameters and Tool Usage
 ===========================
 
@@ -62,11 +62,12 @@ Important Notes:
 - Optional parameters should only be included when necessary
 - Use exact values provided by the user when available
 - File search results are limited to 10 results
-```
+````
 
 We want to additionally add a code edit agent that, given the context, updates the file.
 
 Note: For educational purposes, the instruction is a simplification of cursor. Specifically:
+
 1. For read_file, cursor AI reads by a small chunk specified by line number, and 250 lines at maximum.
    Reading by chunk is a good practice to avoid large files.
    However, here we read the entire file directly.
@@ -78,74 +79,80 @@ Note: For educational purposes, the instruction is a simplification of cursor. S
 ## Flow Design
 
 > Notes for AI:
+>
 > 1. Consider the design patterns of agent, map-reduce, rag, and workflow. Apply them if they fit.
 > 2. Present a concise, high-level description of the workflow.
 
 ### Applicable Design Pattern
 
 1. Main Decision Agent
-    - **Context**: User input, system context, and previous action results
-    - **Action Space**:
-      - `read_file`: {target_file, explanation}
-      - `edit_file`: {target_file, instructions, code_edit}
-      - `delete_file`: {target_file, explanation}
-      - `grep_search`: {query, case_sensitive, include_pattern, exclude_pattern, explanation}
-      - `list_dir`: {relative_workspace_path, explanation}
-      - `finish`: Return final response to user
-    - **Flow**:
-      1. Parse user request and examine current state
-      2. Match request to available tools
-      3. Select tool and prepare parameters
-      4. Run tool or call Edit File Agent
-      5. Analyze results and decide next step (another tool or finish)
-      6. When complete, format final response
+
+   - **Context**: User input, system context, and previous action results
+   - **Action Space**:
+     - `read_file`: {target_file, explanation}
+     - `edit_file`: {target_file, instructions, code_edit}
+     - `delete_file`: {target_file, explanation}
+     - `grep_search`: {query, case_sensitive, include_pattern, exclude_pattern, explanation}
+     - `list_dir`: {relative_workspace_path, explanation}
+     - `finish`: Return final response to user
+   - **Flow**:
+     1. Parse user request and examine current state
+     2. Match request to available tools
+     3. Select tool and prepare parameters
+     4. Run tool or call Edit File Agent
+     5. Analyze results and decide next step (another tool or finish)
+     6. When complete, format final response
 
 2. Edit File Agent
-    - **Context**: File path, content, and edit instructions
-    - **Internal Flow**:
-      1. **Read File Action**:
-          - Reads target file to understand full context
-          - Parameters: {target_file, explanation="Reading for edit analysis"}
-          - Provides complete code structure for analysis
-      
-      2. **Analyze and Plan Changes Node**:
-          - Reviews edit instructions from Main Agent
-          - Outputs a list of specific edits in format:
-            ```
-            [
-              {
-                start_line: int,  // First line to replace (1-indexed)
-                end_line: int,    // Last line to replace (1-indexed)
-                replacement: str  // New code 
-              },
-              ...
-            ]
-            ```
-      
-      3. **Apply Changes Batch Node**:
-          - Processes each edit in the plan
-          - Sorts edits in **descending order by start_line** (from bottom to top of file)
-          - This ensures that line numbers remain valid for all edits since changes to later lines won't affect the position of earlier lines
-          - Applies edits in correct order to handle overlapping changes
+
+   - **Context**: File path, content, and edit instructions
+   - **Internal Flow**:
+
+     1. **Read File Action**:
+
+        - Reads target file to understand full context
+        - Parameters: {target_file, explanation="Reading for edit analysis"}
+        - Provides complete code structure for analysis
+
+     2. **Analyze and Plan Changes Node**:
+
+        - Reviews edit instructions from Main Agent
+        - Outputs a list of specific edits in format:
+          ```
+          [
+            {
+              start_line: int,  // First line to replace (1-indexed)
+              end_line: int,    // Last line to replace (1-indexed)
+              replacement: str  // New code
+            },
+            ...
+          ]
+          ```
+
+     3. **Apply Changes Batch Node**:
+        - Processes each edit in the plan
+        - Sorts edits in **descending order by start_line** (from bottom to top of file)
+        - This ensures that line numbers remain valid for all edits since changes to later lines won't affect the position of earlier lines
+        - Applies edits in correct order to handle overlapping changes
 
 ### Flow High-level Design
 
 ```mermaid
 flowchart TD
     userRequest[User Request] --> mainAgent[Main Decision Agent]
-    
+
     mainAgent -->|read_file| readFile[Read File Action]
     mainAgent -->|edit_file| editAgent[Edit File Agent]
     mainAgent -->|delete_file| deleteFile[Delete File Action]
     mainAgent -->|grep_search| grepSearch[Grep Search Action]
     mainAgent -->|list_dir| listDir[List Directory Action with Tree Viz]
-    
+
     readFile --> mainAgent
     editAgent --> mainAgent
     deleteFile --> mainAgent
     grepSearch --> mainAgent
     listDir --> mainAgent
-    
+
     mainAgent -->|done| formatResponse[Format Response]
     formatResponse --> userResponse[Response to User]
 
@@ -159,48 +166,56 @@ flowchart TD
 ## Utility Functions
 
 > Notes for AI:
+>
 > 1. Understand the utility function definition thoroughly by reviewing the doc.
 > 2. Include only the necessary utility functions, based on nodes in the flow.
 
 **IMPORTANT**: All file and directory paths in utility functions should be interpreted relative to the `working_dir` provided in the shared memory. Utilities should construct absolute paths by joining `working_dir` with the relative paths they receive as parameters.
 
 1. **Call LLM** (`utils/call_llm.py`)
+
    - Makes API calls to language model services
    - Input: prompt/messages
    - Output: LLM response text
 
 2. **File Operations**
+
    - **Read File** (`utils/read_file.py`)
+
      - Reads content from specified files
      - Input: target_file
      - Output: file content, success status
-   
+
    - **Insert File** (`utils/insert_file.py`)
+
      - Writes or inserts content to a target file
      - Input: target_file, content, line_number
      - Output: result message, success status
-   
+
    - **Remove File** (`utils/remove_file.py`)
+
      - Removes content from a file based on line numbers
      - Input: target_file, start_line (optional), end_line (optional)
      - Output: result message, success status
-   
+
    - **Delete File** (`utils/delete_file.py`)
+
      - Deletes a file from the file system
      - Input: target_file
      - Output: result message, success status
-   
+
    - **Replace File** (`utils/replace_file.py`)
      - Replaces content in a file based on line numbers
      - Input: target_file, start_line, end_line, new_content
      - Output: result message, success status
 
 3. **Search Operations** (`utils/search_ops.py`)
+
    - **Grep Search**
      - Searches through files for specific patterns using ripgrep-like functionality
      - Input: query, case_sensitive (optional), include_pattern (optional), exclude_pattern (optional), working_dir (optional)
      - Output: list of matches (file path, line number, content), success status
-   
+
 4. **Directory Operations** (`utils/dir_ops.py`)
    - **List Directory**
      - Lists contents of a directory with a tree visualization
@@ -219,10 +234,10 @@ An improved and simpler shared memory structure:
 shared = {
     # User's original query
     "user_query": str,
-    
+
     # Current working directory - all file operations are relative to this path
     "working_dir": str,    # IMPORTANT: All file paths in operations are interpreted relative to this directory
-    
+
     # Action history - stores all actions and their results
     "history": [
         {
@@ -233,7 +248,7 @@ shared = {
             "timestamp": str          # When the action was performed
         }
     ],
-    
+
     # For edit operations (only used during edits)
     "edit_operations": [
         {
@@ -242,7 +257,7 @@ shared = {
             "replacement": str
         }
     ],
-    
+
     # Final response to return to user
     "response": str
 }
@@ -251,10 +266,11 @@ shared = {
 ### Node Steps
 
 1. Main Decision Agent Node
+
 - **Purpose**: Interprets user requests and decides which tool to use
 - **Type**: Regular Node
 - **Steps**:
-  - **prep**: 
+  - **prep**:
     - Read `shared["user_query"]` and `shared["history"]`
     - Return user query and relevant history
   - **exec**:
@@ -265,6 +281,7 @@ shared = {
     - Return action string for the selected tool
 
 2. Read File Action Node
+
 - **Purpose**: Reads specified file content
 - **Type**: Regular Node
 - **Steps**:
@@ -280,6 +297,7 @@ shared = {
     - Return "decide_next"
 
 3. Grep Search Action Node
+
 - **Purpose**: Searches for patterns in files
 - **Type**: Regular Node
 - **Steps**:
@@ -295,6 +313,7 @@ shared = {
     - Return "decide_next"
 
 4. List Directory Action Node
+
 - **Purpose**: Lists directory contents with tree visualization
 - **Type**: Regular Node
 - **Steps**:
@@ -318,6 +337,7 @@ shared = {
     - Return "decide_next"
 
 5. Delete File Action Node
+
 - **Purpose**: Deletes a file
 - **Type**: Regular Node
 - **Steps**:
@@ -333,6 +353,7 @@ shared = {
     - Return "decide_next"
 
 6. Read Target File Node (Edit Agent)
+
 - **Purpose**: Reads file for editing (first step in edit process)
 - **Type**: Regular Node
 - **Steps**:
@@ -348,6 +369,7 @@ shared = {
     - Return "analyze_plan"
 
 7. Analyze and Plan Changes Node (Edit Agent)
+
 - **Purpose**: Plans specific edit operations
 - **Type**: Regular Node
 - **Steps**:
@@ -363,6 +385,7 @@ shared = {
     - Return "apply_changes"
 
 8. Apply Changes Batch Node (Edit Agent)
+
 - **Purpose**: Applies edits to file
 - **Type**: BatchNode
 - **Steps**:
@@ -382,6 +405,7 @@ shared = {
     - Return "decide_next"
 
 9. Format Response Node
+
 - **Purpose**: Creates response for user
 - **Type**: Regular Node
 - **Steps**:

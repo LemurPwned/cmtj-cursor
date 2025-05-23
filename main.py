@@ -1,7 +1,9 @@
-import os
 import argparse
-from flow import coding_agent_flow
+import os
+
 from loguru import logger
+
+from flow import coding_agent_flow
 
 
 def main():
@@ -9,12 +11,8 @@ def main():
     Run the coding agent to help with code operations
     """
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(
-        description="Coding Agent - AI-powered coding assistant"
-    )
-    parser.add_argument(
-        "--query", "-q", type=str, help="User query to process", required=False
-    )
+    parser = argparse.ArgumentParser(description="Coding Agent - AI-powered coding assistant")
+    parser.add_argument("--query", "-q", type=str, help="User query to process", required=False)
     parser.add_argument(
         "--interactive",
         "-i",

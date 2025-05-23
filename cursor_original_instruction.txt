@@ -87,7 +87,7 @@ API Parameters and Tool Usage
      * is_background: Whether to run in background
      * require_user_approval: Whether user must approve
      * explanation: Purpose of the command
-     Notes: 
+     Notes:
      - For commands using pagers (git, less, head, tail, more), append "| cat"
      - Set is_background true for long-running commands
 

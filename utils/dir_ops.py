@@ -1,9 +1,9 @@
 import os
-from typing import List, Dict, Any, Tuple
+from typing import Any
 
 
 def _build_tree_str(
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     prefix: str = "",
     is_last: bool = True,
     show_all: bool = True,
@@ -31,25 +31,17 @@ def _build_tree_str(
             if child_dirs > 0 or child_files > 0:
                 summary = []
                 if child_dirs > 0:
-                    summary.append(
-                        f"{child_dirs} director{'y' if child_dirs == 1 else 'ies'}"
-                    )
+                    summary.append(f"{child_dirs} director{'y' if child_dirs == 1 else 'ies'}")
                 if child_files > 0:
-                    summary.append(
-                        f"{child_files} file{'s' if child_files != 1 else ''}"
-                    )
+                    summary.append(f"{child_files} file{'s' if child_files != 1 else ''}")
                 tree_str += f"{next_prefix}└── [{', '.join(summary)}]\n"
 
     # Then process files
     if files:
         for i, item in enumerate(files[:10]):
-            is_last_item = (
-                i == len(files) - 1 if (len(files) <= 10 or i == 9) else False
-            )
+            is_last_item = i == len(files) - 1 if (len(files) <= 10 or i == 9) else False
             connector = "└──" if is_last_item else "├──"
-            size_str = (
-                f" ({item['size'] / 1024:.1f} KB)" if item.get("size", 0) > 0 else ""
-            )
+            size_str = f" ({item['size'] / 1024:.1f} KB)" if item.get("size", 0) > 0 else ""
             tree_str += f"{prefix}{connector} {item['name']}{size_str}\n"
 
         # If there are more than 10 files, show ellipsis
@@ -59,7 +51,7 @@ def _build_tree_str(
     return tree_str
 
 
-def list_dir(relative_workspace_path: str) -> Tuple[bool, str]:
+def list_dir(relative_workspace_path: str) -> tuple[bool, str]:
     """
     List contents of a directory (one level only).
 
@@ -70,7 +62,7 @@ def list_dir(relative_workspace_path: str) -> Tuple[bool, str]:
         Tuple of (success status, tree visualization string)
     """
 
-    def _list_dir_recursive(path: str, depth: int = 0) -> List[Dict[str, Any]]:
+    def _list_dir_recursive(path: str, depth: int = 0) -> list[dict[str, Any]]:
         items = []
         try:
             for item in os.listdir(path):
@@ -86,7 +78,7 @@ def list_dir(relative_workspace_path: str) -> Tuple[bool, str]:
                 if not is_dir:
                     try:
                         item_info["size"] = os.path.getsize(item_path)
-                    except:
+                    except:  # noqa: E722
                         item_info["size"] = 0
                 elif depth < 1:  # Only recurse one level
                     # Recursively list directory contents
@@ -97,7 +89,7 @@ def list_dir(relative_workspace_path: str) -> Tuple[bool, str]:
             # Sort: directories first, then files (alphabetically within each group)
             items.sort(key=lambda x: (0 if x["type"] == "directory" else 1, x["name"]))
 
-        except Exception as e:
+        except Exception:
             pass
         return items
 
@@ -115,7 +107,7 @@ def list_dir(relative_workspace_path: str) -> Tuple[bool, str]:
 
         return True, tree_str
 
-    except Exception as e:
+    except Exception:
         return False, ""
 
 

@@ -1,4 +1,4 @@
-# Extras 
+# Extras
 cmtj/
 logs/
 llm_cache.json
@@ -98,4 +98,4 @@ coverage/
 .eslintcache
 
 # Optional REPL history
-.node_repl_history 
+.node_repl_history

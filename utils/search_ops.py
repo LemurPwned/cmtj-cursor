@@ -1,6 +1,7 @@
 import os
 import re
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any, Optional
+
 from loguru import logger
 
 
@@ -9,7 +10,7 @@ def fetch_gitignore(working_dir: str) -> str:
     gitignore_path = os.path.join(working_dir, ".gitignore")
     if not os.path.exists(gitignore_path):
         return ""
-    with open(gitignore_path, "r") as f:
+    with open(gitignore_path) as f:
         return f.read()
 
 
@@ -19,7 +20,7 @@ def grep_search(
     include_pattern: Optional[str] = None,
     exclude_pattern: Optional[str] = None,
     working_dir: str = "",
-) -> Tuple[List[Dict[str, Any]], bool]:
+) -> tuple[list[dict[str, Any]], bool]:
     """
     Search through files for specific patterns using regex.
     Allowed extensions: *.py, *.js, *.ts, *.tsx, *.css, *.html, *.json, *.md, *.txt, *.yaml, *.yml, *.toml, *.ini, *.env, *.lock, *.log, *.csv, *.jsonl, *.jsonl.gz, *.jsonl.bz2, *.jsonl.zip, *.jsonl.tar, *.jsonl.tar.gz, *.jsonl.tar.bz2, *.jsonl.tar.zip, *.jsonl.tar.tar.gz, *.jsonl.tar.tar.bz2, *.jsonl.tar.tar.zip
@@ -39,19 +40,15 @@ def grep_search(
             "line_number": line number (1-indexed),
             "content": matched line content
         }
-    """
+    """  # noqa: E501
     results = []
     search_dir = working_dir if working_dir else "."
     forbidden_extensions = fetch_gitignore(working_dir)
     forbidden_extensions = forbidden_extensions.split("\n")
-    forbidden_extensions = [
-        extension.strip() for extension in forbidden_extensions if extension.strip()
-    ]
+    forbidden_extensions = [extension.strip() for extension in forbidden_extensions if extension.strip()]
 
     # Convert gitignore patterns to regex for matching
-    gitignore_regexes = (
-        _glob_to_regex(",".join(forbidden_extensions)) if forbidden_extensions else []
-    )
+    gitignore_regexes = _glob_to_regex(",".join(forbidden_extensions)) if forbidden_extensions else []
 
     try:
         # Compile the regex pattern
@@ -69,9 +66,7 @@ def grep_search(
         for root, _, files in os.walk(search_dir):
             for filename in files:
                 # Skip files that don't match inclusion pattern
-                if include_regexes and not any(
-                    r.match(filename) for r in include_regexes
-                ):
+                if include_regexes and not any(r.match(filename) for r in include_regexes):
                     continue
 
                 # Skip files that match exclusion pattern
@@ -85,14 +80,11 @@ def grep_search(
                 relative_path = os.path.relpath(file_path, search_dir)
 
                 # Skip files that match gitignore patterns
-                if any(
-                    r.match(relative_path) or r.match(filename)
-                    for r in gitignore_regexes
-                ):
+                if any(r.match(relative_path) or r.match(filename) for r in gitignore_regexes):
                     continue
 
                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(file_path, encoding="utf-8", errors="ignore") as f:
                         for i, line in enumerate(f, 1):
                             if pattern.search(line):
                                 results.append(
@@ -123,7 +115,7 @@ def grep_search(
         return [], False
 
 
-def _glob_to_regex(pattern_str: str) -> List[re.Pattern]:
+def _glob_to_regex(pattern_str: str) -> list[re.Pattern]:
     """Convert comma-separated glob patterns to regex patterns."""
     patterns = []
 

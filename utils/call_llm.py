@@ -1,16 +1,15 @@
 # from anthropic import AnthropicVertex
-from openai import OpenAI
-import os
 import json
+import os
 from datetime import datetime
+
 from loguru import logger
+from openai import OpenAI
 
 # Configure logging
 log_directory = os.getenv("LOG_DIR", "logs")
 os.makedirs(log_directory, exist_ok=True)
-log_file = os.path.join(
-    log_directory, f"llm_calls_{datetime.now().strftime('%Y%m%d')}.log"
-)
+log_file = os.path.join(log_directory, f"llm_calls_{datetime.now().strftime('%Y%m%d')}.log")
 logger.add(log_file, level="DEBUG")
 
 # Simple cache configuration
@@ -28,10 +27,10 @@ def call_llm(prompt: str, use_cache: bool = True) -> str:
         cache = {}
         if os.path.exists(cache_file):
             try:
-                with open(cache_file, "r") as f:
+                with open(cache_file) as f:
                     cache = json.load(f)
-            except:
-                logger.warning(f"Failed to load cache, starting with empty cache")
+            except:  # noqa: E722
+                logger.warning("Failed to load cache, starting with empty cache")
 
         # Return from cache if exists
         if prompt in cache:
@@ -62,9 +61,9 @@ def call_llm(prompt: str, use_cache: bool = True) -> str:
         cache = {}
         if os.path.exists(cache_file):
             try:
-                with open(cache_file, "r") as f:
+                with open(cache_file) as f:
                     cache = json.load(f)
-            except:
+            except:  # noqa: E722
                 pass
 
         # Add to cache and save
@@ -72,7 +71,7 @@ def call_llm(prompt: str, use_cache: bool = True) -> str:
         try:
             with open(cache_file, "w") as f:
                 json.dump(cache, f)
-            logger.info(f"Added to cache")
+            logger.info("Added to cache")
         except Exception as e:
             logger.error(f"Failed to save cache: {e}")
 

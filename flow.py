@@ -1,21 +1,22 @@
-from pocketflow import Node, Flow, BatchNode
 import os
-import yaml  # Add YAML support
 from datetime import datetime
-from typing import List, Dict, Any, Tuple
+from typing import Any
+
+import yaml  # Add YAML support
+from loguru import logger
+from pocketflow import BatchNode, Flow, Node
 
 # Import utility functions
 from utils.call_llm import call_llm
-from utils.read_file import read_file
 from utils.delete_file import delete_file
-from utils.replace_file import replace_file
-from utils.search_ops import grep_search
 from utils.dir_ops import list_dir
 from utils.get_rules import get_rules
-from loguru import logger
+from utils.read_file import read_file
+from utils.replace_file import replace_file
+from utils.search_ops import grep_search
 
 
-def format_history_summary(history: List[Dict[str, Any]]) -> str:
+def format_history_summary(history: list[dict[str, Any]]) -> str:
     if not history:
         return "No previous actions."
 
@@ -30,7 +31,7 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
         # Add parameters
         params = action.get("params", {})
         if params:
-            history_str += f"- Parameters:\n"
+            history_str += "- Parameters:\n"
             for k, v in params.items():
                 history_str += f"  - {k}: {v}\n"
 
@@ -80,9 +81,7 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
                             history_str += "  (No tree structure data)\n"
                     else:
                         history_str += "  (Empty or inaccessible directory)\n"
-                        logger.debug(
-                            f"Tree visualization missing or invalid: {tree_visualization}"
-                        )
+                        logger.debug(f"Tree visualization missing or invalid: {tree_visualization}")
             else:
                 history_str += f"- Result: {result}\n"
 
@@ -96,14 +95,14 @@ def format_history_summary(history: List[Dict[str, Any]]) -> str:
 # Main Decision Agent Node
 #############################################
 class MainDecisionAgent(Node):
-    def prep(self, shared: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
+    def prep(self, shared: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         # Get user query and history
         user_query = shared.get("user_query", "")
         history = shared.get("history", [])
 
         return user_query, history
 
-    def exec(self, inputs: Tuple[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+    def exec(self, inputs: tuple[str, list[dict[str, Any]]]) -> dict[str, Any]:
         user_query, history = inputs
         logger.info(f"MainDecisionAgent: Analyzing user query: {user_query}")
 
@@ -111,7 +110,7 @@ class MainDecisionAgent(Node):
         history_str = format_history_summary(history)
 
         # Create prompt for the LLM using YAML instead of JSON
-        prompt = f"""You are a coding assistant that helps the user write simulation code using cmtj library. Given the following request, 
+        prompt = f"""You are a coding assistant that helps the user write simulation code using cmtj library. Given the following request,
 decide which tool to use from the available options.
 
 User request: {user_query}
@@ -190,7 +189,7 @@ params:
 ```
 
 If you believe no more actions are needed, use "finish" as the tool and explain why in the reason.
-"""
+"""  # noqa: E501
 
         # Call LLM to decide action
         response = call_llm(prompt)
@@ -231,9 +230,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
         else:
             raise ValueError("No YAML object found in response")
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: Any, exec_res: Dict[str, Any]
-    ) -> str:
+    def post(self, shared: dict[str, Any], prep_res: Any, exec_res: dict[str, Any]) -> str:
         logger.info(f"MainDecisionAgent: Selected tool: {exec_res['tool']}")
 
         # Initialize history if not present
@@ -259,7 +256,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 # Read File Action Node
 #############################################
 class ReadFileAction(Node):
-    def prep(self, shared: Dict[str, Any]) -> str:
+    def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
         history = shared.get("history", [])
         if not history:
@@ -281,13 +278,11 @@ class ReadFileAction(Node):
 
         return full_path
 
-    def exec(self, file_path: str) -> Tuple[str, bool]:
+    def exec(self, file_path: str) -> tuple[str, bool]:
         # Call read_file utility which returns a tuple of (content, success)
         return read_file(file_path)
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: str, exec_res: Tuple[str, bool]
-    ) -> str:
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
         # Unpack the tuple returned by read_file()
         content, success = exec_res
 
@@ -301,7 +296,7 @@ class ReadFileAction(Node):
 # Grep Search Action Node
 #############################################
 class GrepSearchAction(Node):
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
+    def prep(self, shared: dict[str, Any]) -> dict[str, Any]:
         # Get parameters from the last history entry
         history = shared.get("history", [])
         if not history:
@@ -328,7 +323,7 @@ class GrepSearchAction(Node):
             "working_dir": working_dir,
         }
 
-    def exec(self, params: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+    def exec(self, params: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
         # Use current directory if not specified
         working_dir = params.pop("working_dir", "")
 
@@ -343,9 +338,9 @@ class GrepSearchAction(Node):
 
     def post(
         self,
-        shared: Dict[str, Any],
-        prep_res: Dict[str, Any],
-        exec_res: Tuple[bool, List[Dict[str, Any]]],
+        shared: dict[str, Any],
+        prep_res: dict[str, Any],
+        exec_res: tuple[bool, list[dict[str, Any]]],
     ) -> str:
         matches, success = exec_res
 
@@ -359,7 +354,7 @@ class GrepSearchAction(Node):
 # List Directory Action Node
 #############################################
 class ListDirAction(Node):
-    def prep(self, shared: Dict[str, Any]) -> str:
+    def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
         history = shared.get("history", [])
         if not history:
@@ -378,15 +373,13 @@ class ListDirAction(Node):
 
         return full_path
 
-    def exec(self, path: str) -> Tuple[bool, str]:
+    def exec(self, path: str) -> tuple[bool, str]:
         # Call list_dir utility which now returns (success, tree_str)
         success, tree_str = list_dir(path)
 
         return success, tree_str
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: str, exec_res: Tuple[bool, str]
-    ) -> str:
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[bool, str]) -> str:
         success, tree_str = exec_res
 
         # Update the result in the last history entry with the new structure
@@ -399,7 +392,7 @@ class ListDirAction(Node):
 # Delete File Action Node
 #############################################
 class DeleteFileAction(Node):
-    def prep(self, shared: Dict[str, Any]) -> str:
+    def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
         history = shared.get("history", [])
         if not history:
@@ -421,13 +414,11 @@ class DeleteFileAction(Node):
 
         return full_path
 
-    def exec(self, file_path: str) -> Tuple[bool, str]:
+    def exec(self, file_path: str) -> tuple[bool, str]:
         # Call delete_file utility which returns (success, message)
         return delete_file(file_path)
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: str, exec_res: Tuple[bool, str]
-    ) -> str:
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[bool, str]) -> str:
         success, message = exec_res
 
         # Update the result in the last history entry
@@ -440,7 +431,7 @@ class DeleteFileAction(Node):
 # Read Target File Node (Edit Agent)
 #############################################
 class ReadTargetFileNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> str:
+    def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
         history = shared.get("history", [])
         if not history:
@@ -458,13 +449,11 @@ class ReadTargetFileNode(Node):
 
         return full_path
 
-    def exec(self, file_path: str) -> Tuple[str, bool]:
+    def exec(self, file_path: str) -> tuple[str, bool]:
         # Call read_file utility which returns (content, success)
         return read_file(file_path)
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: str, exec_res: Tuple[str, bool]
-    ) -> str:
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
         content, success = exec_res
         logger.info("ReadTargetFileNode: File read completed for editing")
 
@@ -478,7 +467,7 @@ class ReadTargetFileNode(Node):
 # Analyze and Plan Changes Node
 #############################################
 class AnalyzeAndPlanNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
+    def prep(self, shared: dict[str, Any]) -> dict[str, Any]:
         # Get history
         history = shared.get("history", [])
         if not history:
@@ -502,7 +491,7 @@ class AnalyzeAndPlanNode(Node):
             "code_edit": code_edit,
         }
 
-    def exec(self, params: Dict[str, Any], retries: int = 2) -> List[Dict[str, Any]]:
+    def exec(self, params: dict[str, Any], retries: int = 2) -> list[dict[str, Any]]:
         file_content = params["file_content"]
         instructions = params["instructions"]
         code_edit = params["code_edit"]
@@ -513,19 +502,19 @@ class AnalyzeAndPlanNode(Node):
 
         # Generate a prompt for the LLM to analyze the edit using YAML instead of JSON
         prompt = f"""
-As a code editing assistant, I need to convert the following code edit instruction 
+As a code editing assistant, I need to convert the following code edit instruction
 and code edit pattern into specific edit operations (start_line, end_line, replacement).
 
 FILE CONTENT:
 {file_content}
 
-EDIT INSTRUCTIONS: 
+EDIT INSTRUCTIONS:
 {instructions}
 
 CODE EDIT PATTERN (markers like "// ... existing code ..." indicate unchanged code):
 {code_edit}
 
-Analyze the file content and the edit pattern to determine exactly where changes should be made. 
+Analyze the file content and the edit pattern to determine exactly where changes should be made.
 Be very careful with start and end lines. They are 1-indexed and inclusive. These will be REPLACED, not APPENDED!
 If you want APPEND, just copy that line as the first line of the replacement.
 Return a YAML object with your reasoning and an array of edit operations:
@@ -534,7 +523,7 @@ Return a YAML object with your reasoning and an array of edit operations:
 reasoning: |
   First explain your thinking process about how you're interpreting the edit pattern.
   Explain how you identified where the edits should be made in the original file.
-  Describe any assumptions or decisions you made when determining the edit locations. 
+  Describe any assumptions or decisions you made when determining the edit locations.
   You need to be very precise with the start and end lines! Reason why not 1 line before or after the start and end lines.
 
 operations:
@@ -548,7 +537,7 @@ operations:
                   return f.read()
           except FileNotFoundError:
               return None
-              
+
   - start_line: 25
     end_line: 25
     replacement: |
@@ -556,12 +545,12 @@ operations:
 ```
 
 For lines that include "// ... existing code ...", do not include them in the replacement.
-Instead, identify the exact lines they represent in the original file and set the line 
+Instead, identify the exact lines they represent in the original file and set the line
 numbers accordingly. Start_line and end_line are 1-indexed.
 
-If the instruction indicates content should be appended to the file, set both start_line and end_line 
+If the instruction indicates content should be appended to the file, set both start_line and end_line
 to the maximum line number + 1, which will add the content at the end of the file.
-"""
+"""  # noqa: E501
 
         # Call LLM to analyze
         response = call_llm(prompt)
@@ -598,12 +587,8 @@ to the maximum line number + 1, which will add the content at the end of the fil
                 assert "start_line" in op, "start_line is missing"
                 assert "end_line" in op, "end_line is missing"
                 assert "replacement" in op, "replacement is missing"
-                assert (
-                    1 <= op["start_line"] <= total_lines
-                ), f"start_line out of range: {op['start_line']}"
-                assert (
-                    1 <= op["end_line"] <= total_lines
-                ), f"end_line out of range: {op['end_line']}"
+                assert 1 <= op["start_line"] <= total_lines, f"start_line out of range: {op['start_line']}"
+                assert 1 <= op["end_line"] <= total_lines, f"end_line out of range: {op['end_line']}"
                 assert (
                     op["start_line"] <= op["end_line"]
                 ), f"start_line > end_line: {op['start_line']} > {op['end_line']}"
@@ -614,9 +599,7 @@ to the maximum line number + 1, which will add the content at the end of the fil
                 return self.exec(params, retries - 1)
             raise ValueError("No YAML object found in response")
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]
-    ) -> str:
+    def post(self, shared: dict[str, Any], prep_res: dict[str, Any], exec_res: dict[str, Any]) -> str:
         # Store reasoning and edit operations in shared
         shared["edit_reasoning"] = exec_res.get("reasoning", "")
         shared["edit_operations"] = exec_res.get("operations", [])
@@ -626,7 +609,7 @@ to the maximum line number + 1, which will add the content at the end of the fil
 # Apply Changes Batch Node
 #############################################
 class ApplyChangesNode(BatchNode):
-    def prep(self, shared: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def prep(self, shared: dict[str, Any]) -> list[dict[str, Any]]:
         # Get edit operations
         edit_operations = shared.get("edit_operations", [])
         if not edit_operations:
@@ -635,9 +618,7 @@ class ApplyChangesNode(BatchNode):
 
         # Sort edit operations in descending order by start_line
         # This ensures that line numbers remain valid as we edit from bottom to top
-        sorted_ops = sorted(
-            edit_operations, key=lambda op: op["start_line"], reverse=True
-        )
+        sorted_ops = sorted(edit_operations, key=lambda op: op["start_line"], reverse=True)
 
         # Get target file from history
         history = shared.get("history", [])
@@ -652,9 +633,7 @@ class ApplyChangesNode(BatchNode):
 
         # Ensure path is relative to working directory
         working_dir = shared.get("working_dir", "")
-        full_path = (
-            os.path.join(working_dir, target_file) if working_dir else target_file
-        )
+        full_path = os.path.join(working_dir, target_file) if working_dir else target_file
 
         # Attach file path to each operation
         for op in sorted_ops:
@@ -662,7 +641,7 @@ class ApplyChangesNode(BatchNode):
 
         return sorted_ops
 
-    def exec(self, op: Dict[str, Any]) -> Tuple[bool, str]:
+    def exec(self, op: dict[str, Any]) -> tuple[bool, str]:
         # Call replace_file utility which returns (success, message)
         return replace_file(
             target_file=op["target_file"],
@@ -673,18 +652,15 @@ class ApplyChangesNode(BatchNode):
 
     def post(
         self,
-        shared: Dict[str, Any],
-        prep_res: List[Dict[str, Any]],
-        exec_res_list: List[Tuple[bool, str]],
+        shared: dict[str, Any],
+        prep_res: list[dict[str, Any]],
+        exec_res_list: list[tuple[bool, str]],
     ) -> str:
         # Check if all operations were successful
         all_successful = all(success for success, _ in exec_res_list)
 
         # Format results for history
-        result_details = [
-            {"success": success, "message": message}
-            for success, message in exec_res_list
-        ]
+        result_details = [{"success": success, "message": message} for success, message in exec_res_list]
 
         # Update edit result in history
         history = shared.get("history", [])
@@ -705,13 +681,13 @@ class ApplyChangesNode(BatchNode):
 # Format Response Node
 #############################################
 class FormatResponseNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def prep(self, shared: dict[str, Any]) -> list[dict[str, Any]]:
         # Get history
         history = shared.get("history", [])
 
         return history
 
-    def exec(self, history: List[Dict[str, Any]]) -> str:
+    def exec(self, history: list[dict[str, Any]]) -> str:
         # If no history, return a generic message
         if not history:
             return "No actions were performed."
@@ -721,7 +697,7 @@ class FormatResponseNode(Node):
 
         # Prompt for the LLM to generate the final response
         prompt = f"""
-You are a coding assistant. You have just performed a series of actions based on the 
+You are a coding assistant. You have just performed a series of actions based on the
 user's request. Summarize what you did in a clear, helpful response.
 
 Here are the actions you performed:
@@ -732,7 +708,7 @@ Generate a comprehensive yet concise response that explains:
 2. What was found or modified
 3. Any next steps the user might want to take
 
-IMPORTANT: 
+IMPORTANT:
 - Focus on the outcomes and results, not the specific tools used
 - Write as if you are directly speaking to the user
 - When providing code examples or structured information, use YAML format enclosed in triple backticks
@@ -743,12 +719,8 @@ IMPORTANT:
 
         return response
 
-    def post(
-        self, shared: Dict[str, Any], prep_res: List[Dict[str, Any]], exec_res: str
-    ) -> str:
-        logger.info(
-            f"###### Final Response Generated ######\n{exec_res}\n###### End of Response ######"
-        )
+    def post(self, shared: dict[str, Any], prep_res: list[dict[str, Any]], exec_res: str) -> str:
+        logger.info(f"###### Final Response Generated ######\n{exec_res}\n###### End of Response ######")
 
         # Store response in shared
         shared["response"] = exec_res

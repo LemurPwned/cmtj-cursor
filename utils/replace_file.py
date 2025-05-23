@@ -1,12 +1,10 @@
 import os
-from typing import Tuple
-from utils.remove_file import remove_file
+
 from utils.insert_file import insert_file
+from utils.remove_file import remove_file
 
 
-def replace_file(
-    target_file: str, start_line: int, end_line: int, content: str
-) -> Tuple[str, bool]:
+def replace_file(target_file: str, start_line: int, end_line: int, content: str) -> tuple[str, bool]:
     """
     Replace content in a file between specified line numbers.
 
@@ -71,33 +69,27 @@ if __name__ == "__main__":
         exit(1)
 
     # Show the initial content
-    with open(temp_file, "r") as f:
+    with open(temp_file) as f:
         content = f.read()
     print(f"Initial file content:\n{content}")
 
     # Test replacing specific lines (3-5)
-    new_content = (
-        "This is the new line 3.\nThis is the new line 4.\nThis is the new line 5.\n"
-    )
+    new_content = "This is the new line 3.\nThis is the new line 4.\nThis is the new line 5.\n"
     replace_result, replace_success = replace_file(temp_file, 3, 5, new_content)
     print(f"\nReplace lines 3-5 result: {replace_result}, success: {replace_success}")
 
     # Show the updated content
-    with open(temp_file, "r") as f:
+    with open(temp_file) as f:
         content = f.read()
     print(f"Updated file content:\n{content}")
 
     # Test replacing with a different number of lines
-    new_content = (
-        "This is the replacement text.\nIt has only two lines instead of three.\n"
-    )
+    new_content = "This is the replacement text.\nIt has only two lines instead of three.\n"
     replace_result, replace_success = replace_file(temp_file, 7, 9, new_content)
-    print(
-        f"\nReplace lines 7-9 with 2 lines result: {replace_result}, success: {replace_success}"
-    )
+    print(f"\nReplace lines 7-9 with 2 lines result: {replace_result}, success: {replace_success}")
 
     # Show the updated content
-    with open(temp_file, "r") as f:
+    with open(temp_file) as f:
         content = f.read()
     print(f"Updated file content:\n{content}")
 
@@ -123,80 +115,62 @@ if __name__ == "__main__":
         exit(1)
 
     # Show initial content
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         content = f.read()
     print(f"Initial file content:\n{content}")
 
     # Count lines in the file to determine where to append
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         line_count = len(f.readlines())
 
     # Append by using remove_file + insert_file
     # Step 1: Remove non-existent line at position just after file end
     # This won't delete anything but prepares for insertion
-    remove_result, remove_success = remove_file(
-        append_file_path, line_count + 1, line_count + 1
-    )
+    remove_result, remove_success = remove_file(append_file_path, line_count + 1, line_count + 1)
     print(f"\nRemove step result: {remove_result}, success: {remove_success}")
 
     # Step 2: Insert new content at the position just after file end
     append_content = "This is appended line 1.\nThis is appended line 2.\n"
-    insert_result, insert_success = insert_file(
-        append_file_path, append_content, line_count + 1
-    )
+    insert_result, insert_success = insert_file(append_file_path, append_content, line_count + 1)
     print(f"Insert step result: {insert_result}, success: {insert_success}")
 
     # Show the updated content
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         content = f.read()
     print(f"Updated file content after append:\n{content}")
 
     # Test appending again
     # First, get the new line count
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         line_count = len(f.readlines())
 
     # Append one more line using the same technique
-    remove_result, remove_success = remove_file(
-        append_file_path, line_count + 1, line_count + 1
-    )
+    remove_result, remove_success = remove_file(append_file_path, line_count + 1, line_count + 1)
     append_content = "This is another appended line.\n"
-    insert_result, insert_success = insert_file(
-        append_file_path, append_content, line_count + 1
-    )
+    insert_result, insert_success = insert_file(append_file_path, append_content, line_count + 1)
 
     # Show the final content
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         content = f.read()
     print(f"\nFinal file content after second append:\n{content}")
 
     # Let's test appending at a specific position rather than at the end
     # For example, let's append at position line_count + 2 (skipping a line)
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         line_count = len(f.readlines())
 
     # Remove the specific line we want to replace (even if it doesn't exist)
-    remove_result, remove_success = remove_file(
-        append_file_path, line_count + 2, line_count + 2
-    )
-    print(
-        f"\nRemove at position {line_count + 2} result: {remove_result}, success: {remove_success}"
-    )
+    remove_result, remove_success = remove_file(append_file_path, line_count + 2, line_count + 2)
+    print(f"\nRemove at position {line_count + 2} result: {remove_result}, success: {remove_success}")
 
     # Insert the content at that specific position
     # This will automatically add a blank line between the current end of file and our new content
-    append_content = (
-        "This line was inserted at line_count + 2, creating a blank line before it.\n"
-    )
-    insert_result, insert_success = insert_file(
-        append_file_path, append_content, line_count + 2
-    )
-    print(
-        f"Insert at position {line_count + 2} result: {insert_result}, success: {insert_success}"
-    )
+    append_content = "This line was inserted at line_count + 2, creating a blank line before it.\n"
+    insert_result, insert_success = insert_file(append_file_path, append_content, line_count + 2)
+    print(f"Insert at position {line_count + 2} result: {insert_result}, success: {insert_success}")
 
     # Show the final content
-    with open(append_file_path, "r") as f:
+    with open(append_file_path) as f:
         content = f.read()
     print(f"\nFinal file content after inserting at line_count + 2:\n{content}")
 
