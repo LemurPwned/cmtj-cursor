@@ -1,0 +1,6 @@
+cmtj/
+logs/
+llm_cache.json
+Makefile
+assets/
+.env

@@ -1,6 +1,7 @@
 import os
 import re
 from typing import List, Dict, Any, Tuple, Optional
+from loguru import logger
 
 
 def fetch_gitignore(working_dir: str) -> str:
@@ -57,7 +58,7 @@ def grep_search(
         try:
             pattern = re.compile(query, 0 if case_sensitive else re.IGNORECASE)
         except re.error as e:
-            print(f"Invalid regex pattern: {str(e)}")
+            logger.error(f"Invalid regex pattern: {str(e)}")
             return [], False
 
         # Convert glob patterns to regex for file matching
@@ -118,7 +119,7 @@ def grep_search(
         return results, True
 
     except Exception as e:
-        print(f"Search error: {str(e)}")
+        logger.error(f"Search error: {str(e)}")
         return [], False
 
 

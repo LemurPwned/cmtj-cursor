@@ -1,9 +1,9 @@
 # from anthropic import AnthropicVertex
 from openai import OpenAI
 import os
-import logging
 import json
 from datetime import datetime
+from loguru import logger
 
 # Configure logging
 log_directory = os.getenv("LOG_DIR", "logs")
@@ -11,15 +11,7 @@ os.makedirs(log_directory, exist_ok=True)
 log_file = os.path.join(
     log_directory, f"llm_calls_{datetime.now().strftime('%Y%m%d')}.log"
 )
-
-# Set up logger
-logger = logging.getLogger("llm_logger")
-logger.setLevel(logging.INFO)
-file_handler = logging.FileHandler(log_file)
-file_handler.setFormatter(
-    logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-)
-logger.addHandler(file_handler)
+logger.add(log_file, level="DEBUG")
 
 # Simple cache configuration
 cache_file = "llm_cache.json"
@@ -28,7 +20,7 @@ cache_file = "llm_cache.json"
 # Learn more about calling the LLM: https://the-pocket.github.io/PocketFlow/utility_function/llm.html
 def call_llm(prompt: str, use_cache: bool = True) -> str:
     # Log the prompt
-    logger.info(f"PROMPT: {prompt}")
+    logger.debug(f"PROMPT: {prompt}")
 
     # Check cache if enabled
     if use_cache:

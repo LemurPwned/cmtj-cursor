@@ -1,7 +1,6 @@
 from pocketflow import Node, Flow, BatchNode
 import os
 import yaml  # Add YAML support
-import logging
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
@@ -12,15 +11,8 @@ from utils.delete_file import delete_file
 from utils.replace_file import replace_file
 from utils.search_ops import grep_search
 from utils.dir_ops import list_dir
-
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("coding_agent.log")],
-)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = logging.getLogger("coding_agent")
+from utils.get_rules import get_rules
+from loguru import logger
 
 
 def format_history_summary(history: List[Dict[str, Any]]) -> str:
@@ -123,6 +115,9 @@ class MainDecisionAgent(Node):
 decide which tool to use from the available options.
 
 User request: {user_query}
+
+Here are the rules for creating simulation code using cmtj library:
+{get_rules()}
 
 Here are the actions you performed:
 {history_str}

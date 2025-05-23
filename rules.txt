@@ -1,0 +1,58 @@
+# Main rules 
+
+1. Generate code only in Python. DO NOT GENERATE C++ code.
+2. Pay attention to units from the Parameters sections.
+
+# Glossary 
+
+Below is the list of common terms used for spintronic simulations
+
+- FM -- ferromagnetic material
+- HM -- heavy metal -- implies SOT usage
+- SOT -- spin orbit torque
+- STT -- spin transfer torque
+- LLG -- Landau Lifshitz Gilbert equation
+- CIMS -- current induced magnetization switching where current impulse is applied to switch magnetization
+- FMR -- ferromagnetic resonance
+- VSD -- voltage spin diode, can be simulated with PIMM simulation
+- PIMM -- Pulse Induced Magnetometry -- where an impulse of Oersted field is applied excite magnetization precession and measure FFT
+- PMA -- perpendicular anisotropy -- implies uniaxial anisotropy vector of (0,0,1)
+- DMI -- Dzyaloshinskii-Moriya interaction
+
+# Parameters
+
+Below we give a rundown of parameters used for the simulation
+
+- anis -- anisotropy axis. Can be x, y or z using CVector
+- J -- interlayer exchange coupling constant [J/m^2]
+- K1 -- first order anisotropy constant [J/m^3]
+- K2 -- second order anisotropy constant [J/m^3]
+- Hext -- external field [A/m]
+- Hoe -- Oersted field [A/m]
+- Ms -- saturation magnetization [T]
+- time -- simulation time [s]
+
+# Simulation layout 
+
+Every simulation in cmtj must have one of the `Layer` objects.
+
+The Layer object can be either of type:
+- `Layer` -- default layer 
+- `LayerSOT` -- layer for SOT applications
+- `LayerSTT` -- layer for STT applications
+
+Given the layers, you can create a `Junction` object.
+Junction is composed of at least one FM layer of any type. 
+
+If needed, multiple `Junction` objects can be chained together electrically either in series or in parallel.
+- `SeriesStack` -- series connection of junctions
+- `ParallelStack` -- parallel connection of junctions
+
+Alternatively, you can create a `GroupInteraction` object with multiple junctions. 
+`GroupInteraction` is a special object that can be used to simulate the interaction between multiple junctions.
+You need to define the distance matrix, and an interaction function. By default, the interaction function is `dipolar`.
+
+For `runSimulation` use the 1e-12 step and writeFrequency, `runSimulation(time, 1e-12, 1e-12)` 
+
+cmtj.utils contains helper functions with field operations. 
+FieldScan is a helper function to sweep the field along an axis. It can be imported from `cmtj.utils import FieldScan`.`

@@ -1,3 +1,12 @@
+# Extras 
+cmtj/
+logs/
+llm_cache.json
+Makefile
+assets/
+.env
+.cursor-cmtj/
+
 # Dependencies
 node_modules/
 vendor/
