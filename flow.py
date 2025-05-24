@@ -1,13 +1,13 @@
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 import yaml  # Add YAML support
 from loguru import logger
 from pocketflow import BatchNode, Flow, Node
 
 # Import utility functions
-from utils.call_llm import call_llm
+from utils.call_llm import call_llm, call_llm_stream
 from utils.delete_file import delete_file
 from utils.dir_ops import list_dir
 from utils.get_rules import get_rules
@@ -24,7 +24,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
 
     for i, action in enumerate(history):
         # Header for all entries - removed timestamp
-        history_str += f"Action {i+1}:\n"
+        history_str += f"Action {i + 1}:\n"
         history_str += f"- Tool: {action['tool']}\n"
         history_str += f"- Reason: {action['reason']}\n"
 
@@ -52,7 +52,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                     history_str += f"- Matches: {len(matches)}\n"
                     # Show all matches without limiting to first 3
                     for j, match in enumerate(matches):
-                        history_str += f"  {j+1}. {match.get('file')}:{match.get('line')}: {match.get('content')}\n"
+                        history_str += f"  {j + 1}. {match.get('file')}:{match.get('line')}: {match.get('content')}\n"
                 elif action["tool"] == "edit_file" and success:
                     operations = result.get("operations", 0)
                     history_str += f"- Operations: {operations}\n"
@@ -589,9 +589,9 @@ to the maximum line number + 1, which will add the content at the end of the fil
                 assert "replacement" in op, "replacement is missing"
                 assert 1 <= op["start_line"] <= total_lines, f"start_line out of range: {op['start_line']}"
                 assert 1 <= op["end_line"] <= total_lines, f"end_line out of range: {op['end_line']}"
-                assert (
-                    op["start_line"] <= op["end_line"]
-                ), f"start_line > end_line: {op['start_line']} > {op['end_line']}"
+                assert op["start_line"] <= op["end_line"], (
+                    f"start_line > end_line: {op['start_line']} > {op['end_line']}"
+                )
 
             return decision
         else:
@@ -681,13 +681,15 @@ class ApplyChangesNode(BatchNode):
 # Format Response Node
 #############################################
 class FormatResponseNode(Node):
-    def prep(self, shared: dict[str, Any]) -> list[dict[str, Any]]:
-        # Get history
+    def prep(self, shared: dict[str, Any]) -> tuple[list[dict[str, Any]], Callable[[str], None] | None]:
+        """Prepare history and optional streaming callback."""
         history = shared.get("history", [])
+        stream_callback = shared.get("stream_callback")
 
-        return history
+        return history, stream_callback
 
-    def exec(self, history: list[dict[str, Any]]) -> str:
+    def exec(self, inputs: tuple[list[dict[str, Any]], Callable[[str], None] | None]) -> str:
+        history, stream_callback = inputs
         # If no history, return a generic message
         if not history:
             return "No actions were performed."
@@ -714,12 +716,24 @@ IMPORTANT:
 - When providing code examples or structured information, use YAML format enclosed in triple backticks
 """
 
-        # Call LLM to generate response
-        response = call_llm(prompt)
+        # Call LLM to generate response, streaming if callback provided
+        if stream_callback:
+            chunks: list[str] = []
+            for chunk in call_llm_stream(prompt):
+                stream_callback(chunk)
+                chunks.append(chunk)
+            response = "".join(chunks)
+        else:
+            response = call_llm(prompt)
 
         return response
 
-    def post(self, shared: dict[str, Any], prep_res: list[dict[str, Any]], exec_res: str) -> str:
+    def post(
+        self,
+        shared: dict[str, Any],
+        prep_res: tuple[list[dict[str, Any]], Callable[[str], None] | None],
+        exec_res: str,
+    ) -> str:
         logger.info(f"###### Final Response Generated ######\n{exec_res}\n###### End of Response ######")
 
         # Store response in shared
