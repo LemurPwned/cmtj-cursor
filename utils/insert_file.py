@@ -1,7 +1,7 @@
 import os
 
 
-def insert_file(target_file: str, content: str, line_number: int = None) -> tuple[str, bool]:
+def insert_file(target_file: str, content: str, line_number: int | None = None) -> tuple[str, bool]:
     """
     Write or insert content to a target file.
 

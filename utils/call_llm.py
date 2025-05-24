@@ -53,7 +53,7 @@ def call_llm(prompt: str, use_cache: bool = True) -> str:
     response_text = response.output_text
 
     # Log the response
-    logger.info(f"RESPONSE: {response_text}")
+    logger.debug(f"RESPONSE: {response_text}")
 
     # Update cache if enabled
     if use_cache:

@@ -1,5 +1,7 @@
 import os
 
+from loguru import logger
+
 from utils.insert_file import insert_file
 from utils.remove_file import remove_file
 
@@ -31,19 +33,25 @@ def replace_file(target_file: str, start_line: int, end_line: int, content: str)
             return "Error: end_line must be at least 1", False
 
         if start_line > end_line:
-            return "Error: start_line must be less than or equal to end_line", False
+            message = "Error: start_line must be less than or equal to end_line"
+            logger.error(message)
+            return message, False
 
         # First, remove the specified lines
         remove_result, remove_success = remove_file(target_file, start_line, end_line)
 
         if not remove_success:
-            return f"Error during remove step: {remove_result}", False
+            message = f"Error during remove step: {remove_result}"
+            logger.error(message)
+            return message, False
 
         # Then, insert the new content at the start line
         insert_result, insert_success = insert_file(target_file, content, start_line)
 
         if not insert_success:
-            return f"Error during insert step: {insert_result}", False
+            message = f"Error during insert step: {insert_result}"
+            logger.error(message)
+            return message, False
 
         return (
             f"Successfully replaced lines {start_line} to {end_line} in {target_file}",
@@ -51,6 +59,7 @@ def replace_file(target_file: str, start_line: int, end_line: int, content: str)
         )
 
     except Exception as e:
+        logger.error(f"Error replacing content: {str(e)}")
         return f"Error replacing content: {str(e)}", False
 
 

@@ -8,12 +8,13 @@ from pocketflow import BatchNode, Flow, Node
 
 # Import utility functions
 from utils.call_llm import call_llm
-from utils.delete_file import delete_file
 from utils.dir_ops import list_dir
-from utils.get_rules import get_rules
+from utils.insert_file import insert_file
 from utils.read_file import read_file
 from utils.replace_file import replace_file
 from utils.search_ops import grep_search
+
+DEFAULT_RETRIES: int = 2
 
 
 def format_history_summary(history: list[dict[str, Any]]) -> str:
@@ -110,13 +111,11 @@ class MainDecisionAgent(Node):
         history_str = format_history_summary(history)
 
         # Create prompt for the LLM using YAML instead of JSON
-        prompt = f"""You are a coding assistant that helps the user write simulation code using cmtj library. Given the following request,
+        prompt = f"""You are a coding assistant that helps modify and navigate code. Given the following request,
 decide which tool to use from the available options.
-
+Do not finish until you provide a sample code. You can ask the user for more details, but always provide a sample code.
+If the task ask you to write code, before you write any code, always do a thorough search first and then write the code.
 User request: {user_query}
-
-Here are the rules for creating simulation code using cmtj library:
-{get_rules()}
 
 Here are the actions you performed:
 {history_str}
@@ -152,6 +151,19 @@ Available tools:
             }}
             // ... existing file reading code ...
 
+3. create_new_file: Create a new file
+   - Parameters: target_file (path), content
+   - Example:
+     tool: create_new_file
+     reason: I need to create a new file called utils/read_file.py
+     params:
+       target_file: utils/read_file.py
+       content: |
+        # new code here
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("New file created")
+
 4. grep_search: Search for patterns in files
    - Parameters: query, case_sensitive (optional), include_pattern (optional), exclude_pattern (optional)
    - Example:
@@ -175,7 +187,7 @@ Available tools:
    - No parameters required
    - Example:
      tool: finish
-     reason: I have completed the requested task of writing simulation code using cmtj library
+     reason: I have completed the requested task of finding all logger instances
      params: {{}}
 
 Respond with a YAML object containing:
@@ -279,6 +291,7 @@ class ReadFileAction(Node):
         return full_path
 
     def exec(self, file_path: str) -> tuple[str, bool]:
+        logger.warning(f"Reading file: {file_path}")
         # Call read_file utility which returns a tuple of (content, success)
         return read_file(file_path)
 
@@ -325,6 +338,7 @@ class GrepSearchAction(Node):
 
     def exec(self, params: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
         # Use current directory if not specified
+        logger.warning(f"GrepSearchAction: {params}")
         working_dir = params.pop("working_dir", "")
 
         # Call grep_search utility which returns (success, matches)
@@ -375,6 +389,7 @@ class ListDirAction(Node):
 
     def exec(self, path: str) -> tuple[bool, str]:
         # Call list_dir utility which now returns (success, tree_str)
+        logger.warning(f"ListDirAction: {path}")
         success, tree_str = list_dir(path)
 
         return success, tree_str
@@ -386,45 +401,6 @@ class ListDirAction(Node):
         history = shared.get("history", [])
         if history:
             history[-1]["result"] = {"success": success, "tree_visualization": tree_str}
-
-
-#############################################
-# Delete File Action Node
-#############################################
-class DeleteFileAction(Node):
-    def prep(self, shared: dict[str, Any]) -> str:
-        # Get parameters from the last history entry
-        history = shared.get("history", [])
-        if not history:
-            raise ValueError("No history found")
-
-        last_action = history[-1]
-        file_path = last_action["params"].get("target_file")
-
-        if not file_path:
-            raise ValueError("Missing target_file parameter")
-
-        # Use the reason for logging instead of explanation
-        reason = last_action.get("reason", "No reason provided")
-        logger.info(f"DeleteFileAction: {reason}")
-
-        # Ensure path is relative to working directory
-        working_dir = shared.get("working_dir", "")
-        full_path = os.path.join(working_dir, file_path) if working_dir else file_path
-
-        return full_path
-
-    def exec(self, file_path: str) -> tuple[bool, str]:
-        # Call delete_file utility which returns (success, message)
-        return delete_file(file_path)
-
-    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[bool, str]) -> str:
-        success, message = exec_res
-
-        # Update the result in the last history entry
-        history = shared.get("history", [])
-        if history:
-            history[-1]["result"] = {"success": success, "message": message}
 
 
 #############################################
@@ -445,12 +421,11 @@ class ReadTargetFileNode(Node):
 
         # Ensure path is relative to working directory
         working_dir = shared.get("working_dir", "")
-        full_path = os.path.join(working_dir, file_path) if working_dir else file_path
-
-        return full_path
+        return os.path.join(working_dir, file_path) if working_dir else file_path
 
     def exec(self, file_path: str) -> tuple[str, bool]:
         # Call read_file utility which returns (content, success)
+        logger.warning(f"ReadTargetFileNode: {file_path}")
         return read_file(file_path)
 
     def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
@@ -491,7 +466,8 @@ class AnalyzeAndPlanNode(Node):
             "code_edit": code_edit,
         }
 
-    def exec(self, params: dict[str, Any], retries: int = 2) -> list[dict[str, Any]]:
+    def exec(self, params: dict[str, Any], retries: int = DEFAULT_RETRIES) -> list[dict[str, Any]]:
+        logger.warning(f"AnalyzeAndPlanNode: {params}")
         file_content = params["file_content"]
         instructions = params["instructions"]
         code_edit = params["code_edit"]
@@ -553,7 +529,7 @@ to the maximum line number + 1, which will add the content at the end of the fil
 """  # noqa: E501
 
         # Call LLM to analyze
-        response = call_llm(prompt)
+        response = call_llm(prompt, use_cache=retries == DEFAULT_RETRIES)
 
         # Look for YAML structure in the response
         yaml_content = ""
@@ -596,6 +572,7 @@ to the maximum line number + 1, which will add the content at the end of the fil
             return decision
         else:
             if retries > 0:
+                logger.warning(f"AnalyzeAndPlanNode: Retrying (attempt {2 - retries})")
                 return self.exec(params, retries - 1)
             raise ValueError("No YAML object found in response")
 
@@ -642,6 +619,7 @@ class ApplyChangesNode(BatchNode):
         return sorted_ops
 
     def exec(self, op: dict[str, Any]) -> tuple[bool, str]:
+        logger.warning(f"ApplyChangesNode: {op}")
         # Call replace_file utility which returns (success, message)
         return replace_file(
             target_file=op["target_file"],
@@ -689,6 +667,7 @@ class FormatResponseNode(Node):
 
     def exec(self, history: list[dict[str, Any]]) -> str:
         # If no history, return a generic message
+        logger.warning(f"FormatResponseNode: {history}")
         if not history:
             return "No actions were performed."
 
@@ -728,6 +707,42 @@ IMPORTANT:
         return "done"
 
 
+class CreateNewFileNode(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        file_path = last_action["params"].get("target_file")
+        content = last_action["params"].get("content")
+        if not file_path:
+            raise ValueError("Missing target_file parameter")
+        if not content:
+            raise ValueError("Missing content parameter")
+
+        # Ensure path is relative to working directory
+        working_dir = shared.get("working_dir", "")
+        return {
+            "file_path": (os.path.join(working_dir, file_path) if working_dir else file_path),
+            "content": content,
+        }
+
+    def exec(self, params: dict[str, Any]) -> tuple[str, bool]:
+        # Call create_new_file utility which returns (success, message)
+        logger.warning(f"CreateNewFileNode: {params}")
+        return insert_file(params["file_path"], params["content"])
+
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
+        # Update the result in the last history entry
+        error, success = exec_res
+        error = "" if success else error
+        history = shared.get("history", [])
+        if history:
+            history[-1]["result"] = {"success": success, "error": error}
+
+
 #############################################
 # Edit Agent Flow
 #############################################
@@ -750,6 +765,7 @@ def create_edit_agent() -> Flow:
 #############################################
 def create_main_flow() -> Flow:
     # Create nodes
+    create_new_file = CreateNewFileNode()
     main_agent = MainDecisionAgent()
     read_action = ReadFileAction()
     grep_action = GrepSearchAction()
@@ -758,6 +774,7 @@ def create_main_flow() -> Flow:
     format_response = FormatResponseNode()
 
     # Connect main agent to action nodes
+    main_agent - "create_new_file" >> create_new_file
     main_agent - "read_file" >> read_action
     main_agent - "grep_search" >> grep_action
     main_agent - "list_dir" >> list_dir_action
@@ -769,10 +786,47 @@ def create_main_flow() -> Flow:
     grep_action >> main_agent
     list_dir_action >> main_agent
     edit_agent >> main_agent
-
+    create_new_file >> main_agent
     # Create flow
     return Flow(start=main_agent)
 
 
+def build_mermaid(start):
+    ids, visited, lines = {}, set(), ["graph LR"]
+    ctr = 1
+
+    def get_id(n):
+        nonlocal ctr
+        return ids[n] if n in ids else (ids.setdefault(n, f"N{ctr}"), (ctr := ctr + 1))[0]
+
+    def link(a, b):
+        lines.append(f"    {a} --> {b}")
+
+    def walk(node, parent=None):
+        if node in visited:
+            return parent and link(parent, get_id(node))
+        visited.add(node)
+        if isinstance(node, Flow):
+            node.start_node and parent and link(parent, get_id(node.start_node))
+            lines.append(f"\n    subgraph sub_flow_{get_id(node)}[{type(node).__name__}]")
+            node.start_node and walk(node.start_node)
+            for nxt in node.successors.values():
+                node.start_node and walk(nxt, get_id(node.start_node)) or (
+                    parent and link(parent, get_id(nxt))
+                ) or walk(nxt)
+            lines.append("    end\n")
+        else:
+            lines.append(f"    {(nid := get_id(node))}['{type(node).__name__}']")
+            parent and link(parent, nid)
+            [walk(nxt, nid) for nxt in node.successors.values()]
+
+    walk(start)
+    return "\n".join(lines)
+
+
 # Create the main flow
 coding_agent_flow = create_main_flow()
+
+flow = build_mermaid(coding_agent_flow)
+with open("flow.md", "w") as f:
+    f.write(flow)

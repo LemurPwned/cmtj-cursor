@@ -9,4 +9,4 @@ RUN pip install -r requirements.txt
 
 COPY . .
 ENV LOGURU_LEVEL=INFO
-ENTRYPOINT ["python", "main.py", "--interactive"]
+ENTRYPOINT ["python", "main.py", "--interactive", "--working-dir", "./cmtj"]
