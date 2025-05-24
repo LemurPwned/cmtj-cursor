@@ -1,6 +1,7 @@
 # from anthropic import AnthropicVertex
 import json
 import os
+from collections.abc import Iterator
 from datetime import datetime
 
 from loguru import logger
@@ -76,6 +77,12 @@ def call_llm(prompt: str, use_cache: bool = True) -> str:
             logger.error(f"Failed to save cache: {e}")
 
     return response_text
+
+
+def call_llm_stream(prompt: str, use_cache: bool = True) -> Iterator[str]:
+    """Yield response text one character at a time."""
+    response_text = call_llm(prompt, use_cache=use_cache)
+    yield from response_text
 
 
 def clear_cache() -> None:
