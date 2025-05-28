@@ -8,11 +8,17 @@ from pocketflow import BatchNode, Flow, Node
 
 # Import utility functions
 from utils.call_llm import call_llm
+from utils.compile_ops import validate_file
 from utils.dir_ops import list_dir
+from utils.get_rules import get_rules
 from utils.insert_file import insert_file
 from utils.read_file import read_file
 from utils.replace_file import replace_file
-from utils.search_ops import grep_search
+from utils.search_ops import (
+    get_api_docstrings,
+    grep_search,
+    search_api_docstrings_regex,
+)
 
 DEFAULT_RETRIES: int = 2
 
@@ -83,6 +89,52 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                     else:
                         history_str += "  (Empty or inaccessible directory)\n"
                         logger.debug(f"Tree visualization missing or invalid: {tree_visualization}")
+                elif action["tool"] == "check_class_or_function_signature_or_docstring" and success:
+                    matches = result.get("matches", [])
+                    history_str += f"- API Matches: {len(matches)}\n"
+                    # Show all matches with their details
+                    for j, match in enumerate(matches):
+                        history_str += f"  {j+1}. {match.get('name')} (score: {match.get('match_score', 0)})\n"
+
+                        # Show match reasons
+                        reasons = match.get("match_reasons", [])
+                        if reasons:
+                            history_str += f"     Reasons: {', '.join(reasons)}\n"
+
+                        # Show search details (fuzzy score, semantic similarity)
+                        details = match.get("search_details", {})
+                        if details:
+                            detail_parts = []
+                            if "fuzzy_score" in details:
+                                detail_parts.append(f"Fuzzy: {details['fuzzy_score']}%")
+                            if "semantic_score" in details:
+                                detail_parts.append(f"Semantic: {details['semantic_score']:.3f}")
+                            if detail_parts:
+                                history_str += f"     Details: {', '.join(detail_parts)}\n"
+
+                        if match.get("docstring"):
+                            # Truncate long docstrings for readability
+                            docstring = match.get("docstring", "")
+                            if len(docstring) > 150:
+                                docstring = docstring[:150] + "..."
+                            history_str += f"     Docstring: {docstring}\n"
+                        if match.get("args"):
+                            args_str = ", ".join(f"{k}: {v}" for k, v in match.get("args", {}).items())
+                            if len(args_str) > 100:
+                                args_str = args_str[:100] + "..."
+                            history_str += f"     Args: {args_str}\n"
+                        if match.get("returns"):
+                            history_str += f"     Returns: {match.get('returns')}\n"
+                        if match.get("methods"):
+                            methods = match.get("methods", [])
+                            if len(methods) > 5:
+                                methods_str = ", ".join(methods[:5]) + f" (and {len(methods)-5} more)"
+                            else:
+                                methods_str = ", ".join(methods)
+                            history_str += f"     Methods: {methods_str}\n"
+                elif action["tool"] == "check_class_or_function_signature_or_docstring" and not success:
+                    message = result.get("message", "No matches found")
+                    history_str += f"- API Search Result: {message}\n"
             else:
                 history_str += f"- Result: {result}\n"
 
@@ -115,6 +167,8 @@ class MainDecisionAgent(Node):
 decide which tool to use from the available options.
 Do not finish until you provide a sample code. You can ask the user for more details, but always provide a sample code.
 If the task ask you to write code, before you write any code, always do a thorough search first and then write the code.
+When generating content for new files or editing existing files, follow these rules: {get_rules()}
+
 User request: {user_query}
 
 Here are the actions you performed:
@@ -183,7 +237,16 @@ Available tools:
        relative_workspace_path: utils
    - Result: Returns a tree visualization of the directory structure
 
-6. finish: End the process and provide final code output
+6. search_api_docstrings_regex: Search the signature or docstring of a class or function of cmtj library. Can also do free text search.
+   - Parameters: query
+   - Example:
+     tool: search_api_docstrings_regex
+     reason: I need to check the signature or docstring of the class called "Junction"
+     params:
+       query: Junction
+   - Result: Returns the signature and the docstring of the class or function
+
+7. finish: End the process and provide final code output
    - No parameters required
    - Example:
      tool: finish
@@ -226,7 +289,13 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
             yaml_content = response.strip()
 
         if yaml_content:
-            decision = yaml.safe_load(yaml_content)
+            try:
+                decision = yaml.safe_load(yaml_content)
+            except yaml.YAMLError as e:
+                logger.error(f"YAML parsing error: {str(e)}")
+                logger.error(f"LLM Response: {response}")
+                logger.error(f"Extracted YAML content: {yaml_content}")
+                raise ValueError(f"Invalid YAML format in LLM response: {str(e)}") from e
 
             # Validate the required fields
             assert "tool" in decision, "Tool name is missing"
@@ -240,6 +309,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 
             return decision
         else:
+            logger.error(f"No YAML content found in LLM response: {response}")
             raise ValueError("No YAML object found in response")
 
     def post(self, shared: dict[str, Any], prep_res: Any, exec_res: dict[str, Any]) -> str:
@@ -636,6 +706,12 @@ class ApplyChangesNode(BatchNode):
     ) -> str:
         # Check if all operations were successful
         all_successful = all(success for success, _ in exec_res_list)
+        # validate the file
+        for op in prep_res:
+            error = validate_file(op["target_file"])
+            if error:
+                logger.warning(f"ApplyChangesNode: {error}")
+                all_successful = False
 
         # Format results for history
         result_details = [{"success": success, "message": message} for success, message in exec_res_list]
@@ -694,9 +770,7 @@ IMPORTANT:
 """
 
         # Call LLM to generate response
-        response = call_llm(prompt)
-
-        return response
+        return call_llm(prompt)
 
     def post(self, shared: dict[str, Any], prep_res: list[dict[str, Any]], exec_res: str) -> str:
         logger.info(f"###### Final Response Generated ######\n{exec_res}\n###### End of Response ######")
@@ -738,8 +812,9 @@ class CreateNewFileNode(Node):
         # Update the result in the last history entry
         error, success = exec_res
         error = "" if success else error
-        history = shared.get("history", [])
-        if history:
+        if success:
+            error = validate_file(prep_res["file_path"])
+        if history := shared.get("history", []):
             history[-1]["result"] = {"success": success, "error": error}
 
 
@@ -760,6 +835,115 @@ def create_edit_agent() -> Flow:
     return Flow(start=read_target)
 
 
+class SalientFileAgent(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        if not (file_path := last_action["params"].get("target_file")):
+            raise ValueError("Missing target_file parameter")
+
+        return file_path
+
+    def exec(self, file_path: str) -> tuple[str, bool]:
+        # Call read_file utility which returns (con tent, success)
+        content, success = read_file(file_path)
+        if not success:
+            return "not relevant", False
+
+        prompt = f"""
+        You are a coding assistant. You have just a grep search for a string in a file.
+        Determine if the file content is relevant to the user's request.
+
+        If file is not relevant, return "not relevant".
+        If file is relevant, return the most salient parts of the file contents.
+
+        File content:
+        {content}
+        """
+        response = call_llm(prompt)
+        logger.warning(f"SalientFileNode: {file_path}")
+        return response
+
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
+        return exec_res[0]
+
+
+class SummaryNode(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        file_path = last_action["params"].get("target_file")
+        if not file_path:
+            raise ValueError("Missing target_file parameter")
+
+        return file_path
+
+    def exec(self, file_path: str) -> str:
+        # Call read_file utility which returns (content, success)
+        content, success = read_file(file_path)
+        if not success:
+            return "not relevant"
+
+        return content
+
+
+class SearchDocstring(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        if query := last_action["params"].get("query"):
+            return {
+                "query": query,
+                "working_dir": shared.get("working_dir", ""),
+            }
+        raise ValueError("Missing query parameter")
+
+    def exec(self, params: dict[str, Any]) -> Any:
+        # Call get_api_docstrings utility which now returns a list of matches or a string message
+        logger.warning(f"SearchDocstring: {params}")
+        naive_search = get_api_docstrings(params["query"], params["working_dir"])
+        if naive_search:
+            return naive_search
+        return search_api_docstrings_regex(params["query"], params["working_dir"])
+
+    def post(self, shared: dict[str, Any], prep_res: dict[str, Any], exec_res: Any) -> str:
+        # Update the result in the last history entry
+        if history := shared.get("history", []):
+            # Determine if the search was successful
+            success = isinstance(exec_res, list) and len(exec_res) > 0
+            history[-1]["result"] = {
+                "success": success,
+                "matches": exec_res if isinstance(exec_res, list) else [],
+                "message": exec_res if isinstance(exec_res, str) else "",
+            }
+
+
+def create_search_agent() -> Flow:
+    # Create nodes
+    # do a search for string
+    grep_action = GrepSearchAction()
+    read_action = ReadFileAction()
+    saliency_agent = SalientFileAgent()
+    summary_agent = SummaryNode()
+    grep_action - "read_file" >> read_action
+    read_action - "is_file_relevant" >> saliency_agent
+    saliency_agent - "summary" >> summary_agent
+
+    return Flow(start=grep_action)
+
+
 #############################################
 # Main Flow
 #############################################
@@ -772,13 +956,14 @@ def create_main_flow() -> Flow:
     list_dir_action = ListDirAction()
     edit_agent = create_edit_agent()
     format_response = FormatResponseNode()
-
+    docstring_node = SearchDocstring()
     # Connect main agent to action nodes
     main_agent - "create_new_file" >> create_new_file
     main_agent - "read_file" >> read_action
     main_agent - "grep_search" >> grep_action
     main_agent - "list_dir" >> list_dir_action
     main_agent - "edit_file" >> edit_agent
+    main_agent - "search_api_docstrings_regex" >> docstring_node
     main_agent - "finish" >> format_response
 
     # Connect action nodes back to main agent using default action
@@ -787,6 +972,7 @@ def create_main_flow() -> Flow:
     list_dir_action >> main_agent
     edit_agent >> main_agent
     create_new_file >> main_agent
+    docstring_node >> main_agent
     # Create flow
     return Flow(start=main_agent)
 
@@ -829,4 +1015,4 @@ coding_agent_flow = create_main_flow()
 
 flow = build_mermaid(coding_agent_flow)
 with open("flow.md", "w") as f:
-    f.write(flow)
+    f.write(f"```mermaid\n{flow}\n```")

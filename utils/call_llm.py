@@ -19,7 +19,7 @@ cache_file = "llm_cache.json"
 # Learn more about calling the LLM: https://the-pocket.github.io/PocketFlow/utility_function/llm.html
 def call_llm(prompt: str, use_cache: bool = True) -> str:
     # Log the prompt
-    logger.debug(f"PROMPT: {prompt}")
+    # logger.debug(f"PROMPT: {prompt}")
 
     # Check cache if enabled
     if use_cache:
