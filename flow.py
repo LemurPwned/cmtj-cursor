@@ -8,7 +8,7 @@ from pocketflow import BatchNode, Flow, Node
 
 # Import utility functions
 from utils.call_llm import call_llm
-from utils.compile_ops import validate_file
+from utils.compile_ops import validate_code, validate_file
 from utils.dir_ops import list_dir
 from utils.get_rules import get_rules
 from utils.insert_file import insert_file
@@ -43,8 +43,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                 history_str += f"  - {k}: {v}\n"
 
         # Add detailed result information
-        result = action.get("result")
-        if result:
+        if result := action.get("result"):
             if isinstance(result, dict):
                 success = result.get("success", False)
                 history_str += f"- Result: {'Success' if success else 'Failed'}\n"
@@ -89,7 +88,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                     else:
                         history_str += "  (Empty or inaccessible directory)\n"
                         logger.debug(f"Tree visualization missing or invalid: {tree_visualization}")
-                elif action["tool"] == "check_class_or_function_signature_or_docstring" and success:
+                elif action["tool"] == "search_api_docstrings_regex" and success:
                     matches = result.get("matches", [])
                     history_str += f"- API Matches: {len(matches)}\n"
                     # Show all matches with their details
@@ -132,7 +131,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                             else:
                                 methods_str = ", ".join(methods)
                             history_str += f"     Methods: {methods_str}\n"
-                elif action["tool"] == "check_class_or_function_signature_or_docstring" and not success:
+                elif action["tool"] == "search_api_docstrings_regex" and not success:
                     message = result.get("message", "No matches found")
                     history_str += f"- API Search Result: {message}\n"
             else:
@@ -268,7 +267,17 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 
         # Call LLM to decide action
         response = call_llm(prompt)
-
+        if "```python" in response:
+            # we actually got python code, so we need to validate it and correct it if needed
+            python_blocks = response.split("```python")
+            if len(python_blocks) > 1:
+                python_content = python_blocks[1].split("```")[0].strip()
+                python_code = python_content.replace("```python", "")
+                return {
+                    "tool": "validate_code",
+                    "reason": "validate_code",
+                    "params": {"code_content": python_code},
+                }
         # Look for YAML structure in the response
         yaml_content = ""
         if "```yaml" in response:
@@ -284,6 +293,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
             yaml_blocks = response.split("```")
             if len(yaml_blocks) > 1:
                 yaml_content = yaml_blocks[1].strip()
+
         else:
             # If no code blocks, try to use the entire response
             yaml_content = response.strip()
@@ -370,8 +380,7 @@ class ReadFileAction(Node):
         content, success = exec_res
 
         # Update the result in the last history entry
-        history = shared.get("history", [])
-        if history:
+        if history := shared.get("history", []):
             history[-1]["result"] = {"success": success, "content": content}
 
 
@@ -429,8 +438,7 @@ class GrepSearchAction(Node):
         matches, success = exec_res
 
         # Update the result in the last history entry
-        history = shared.get("history", [])
-        if history:
+        if history := shared.get("history", []):
             history[-1]["result"] = {"success": success, "matches": matches}
 
 
@@ -453,9 +461,7 @@ class ListDirAction(Node):
 
         # Ensure path is relative to working directory
         working_dir = shared.get("working_dir", "")
-        full_path = os.path.join(working_dir, path) if working_dir else path
-
-        return full_path
+        return os.path.join(working_dir, path) if working_dir else path
 
     def exec(self, path: str) -> tuple[bool, str]:
         # Call list_dir utility which now returns (success, tree_str)
@@ -468,8 +474,7 @@ class ListDirAction(Node):
         success, tree_str = exec_res
 
         # Update the result in the last history entry with the new structure
-        history = shared.get("history", [])
-        if history:
+        if history := shared.get("history", []):
             history[-1]["result"] = {"success": success, "tree_visualization": tree_str}
 
 
@@ -503,8 +508,7 @@ class ReadTargetFileNode(Node):
         logger.info("ReadTargetFileNode: File read completed for editing")
 
         # Store file content in the history entry
-        history = shared.get("history", [])
-        if history:
+        if history := shared.get("history", []):
             history[-1]["file_content"] = content
 
 
@@ -640,11 +644,10 @@ to the maximum line number + 1, which will add the content at the end of the fil
                 ), f"start_line > end_line: {op['start_line']} > {op['end_line']}"
 
             return decision
-        else:
-            if retries > 0:
-                logger.warning(f"AnalyzeAndPlanNode: Retrying (attempt {2 - retries})")
-                return self.exec(params, retries - 1)
-            raise ValueError("No YAML object found in response")
+        if retries > 0:
+            logger.warning(f"AnalyzeAndPlanNode: Retrying (attempt {2 - retries})")
+            return self.exec(params, retries - 1)
+        raise ValueError("No YAML object found in response")
 
     def post(self, shared: dict[str, Any], prep_res: dict[str, Any], exec_res: dict[str, Any]) -> str:
         # Store reasoning and edit operations in shared
@@ -707,18 +710,20 @@ class ApplyChangesNode(BatchNode):
         # Check if all operations were successful
         all_successful = all(success for success, _ in exec_res_list)
         # validate the file
+        errors = []
         for op in prep_res:
-            error = validate_file(op["target_file"])
-            if error:
+            if error := validate_file(op["target_file"]):
+                errors.append(error)
                 logger.warning(f"ApplyChangesNode: {error}")
                 all_successful = False
 
         # Format results for history
         result_details = [{"success": success, "message": message} for success, message in exec_res_list]
+        if errors:
+            result_details.append({"success": False, "message": errors})
 
         # Update edit result in history
-        history = shared.get("history", [])
-        if history:
+        if history := shared.get("history", []):
             history[-1]["result"] = {
                 "success": all_successful,
                 "operations": len(exec_res_list),
@@ -737,15 +742,13 @@ class ApplyChangesNode(BatchNode):
 class FormatResponseNode(Node):
     def prep(self, shared: dict[str, Any]) -> list[dict[str, Any]]:
         # Get history
-        history = shared.get("history", [])
-
-        return history
+        if history := shared.get("history", []):
+            return history
+        raise ValueError("No history found")
 
     def exec(self, history: list[dict[str, Any]]) -> str:
         # If no history, return a generic message
         logger.warning(f"FormatResponseNode: {history}")
-        if not history:
-            return "No actions were performed."
 
         # Generate a summary of actions for the LLM using the utility function
         actions_summary = format_history_summary(history)
@@ -818,23 +821,6 @@ class CreateNewFileNode(Node):
             history[-1]["result"] = {"success": success, "error": error}
 
 
-#############################################
-# Edit Agent Flow
-#############################################
-def create_edit_agent() -> Flow:
-    # Create nodes
-    read_target = ReadTargetFileNode()
-    analyze_plan = AnalyzeAndPlanNode()
-    apply_changes = ApplyChangesNode()
-
-    # Connect nodes using default action (no named actions)
-    read_target >> analyze_plan
-    analyze_plan >> apply_changes
-
-    # Create flow
-    return Flow(start=read_target)
-
-
 class SalientFileAgent(Node):
     def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
@@ -880,19 +866,15 @@ class SummaryNode(Node):
             raise ValueError("No history found")
 
         last_action = history[-1]
-        file_path = last_action["params"].get("target_file")
-        if not file_path:
-            raise ValueError("Missing target_file parameter")
 
-        return file_path
+        if file_path := last_action["params"].get("target_file"):
+            return file_path
+        raise ValueError("Missing target_file parameter")
 
     def exec(self, file_path: str) -> str:
         # Call read_file utility which returns (content, success)
         content, success = read_file(file_path)
-        if not success:
-            return "not relevant"
-
-        return content
+        return content if success else "not relevant"
 
 
 class SearchDocstring(Node):
@@ -930,6 +912,94 @@ class SearchDocstring(Node):
             }
 
 
+class CompileFileNode(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        if code_content := last_action["params"].get("code_content"):
+            return code_content
+        raise ValueError("Missing code_content parameter")
+
+    def exec(self, code_content: str) -> tuple[str, bool]:
+        # Call compile_file utility which returns (content, success)
+        errors, success = validate_code(code_content)
+        if success:
+            return "compilation_success", errors
+        return "compilation_error", errors
+
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
+        if history := shared.get("history", []):
+            history[-1]["result"] = {
+                "code_content": prep_res,
+                "success": exec_res[0] == "compilation_success",
+                "compilation_errors": exec_res[1],
+            }
+        return exec_res[0]
+
+
+class FixCodeNode(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        if (code_content := last_action["params"].get("code_content")) and (
+            compilation_errors := last_action["result"].get("compilation_errors")
+        ):
+            return {
+                "code_content": code_content,
+                "compilation_errors": compilation_errors,
+            }
+        raise ValueError("Missing code_content or compilation_errors parameter")
+
+    def exec(self, params: dict[str, Any]) -> tuple[str, bool]:
+        # Call fix_code utility which returns (content, success)
+        PROMPT = f"""
+        You are a coding assistant. You have just a python code.
+        Fix the code to remove all the errors.
+        Return only the fixed code, no other text.
+        Code editing rules: {get_rules()}
+
+        Reported errors:
+        {params.get("compilation_errors", [])}
+        Code:
+        {params.get("code_content", "")}
+        """
+        return call_llm(PROMPT)
+
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
+        if history := shared.get("history", []):
+            history[-1]["result"] = {
+                "code_content": prep_res,
+                "success": exec_res[0] == "compilation_success",
+                "compilation_errors": exec_res[1],
+            }
+        return exec_res[0]
+
+
+#############################################
+# Edit Agent Flow
+#############################################
+def create_edit_agent() -> Flow:
+    # Create nodes
+    read_target = ReadTargetFileNode()
+    analyze_plan = AnalyzeAndPlanNode()
+    apply_changes = ApplyChangesNode()
+
+    # Connect nodes using default action (no named actions)
+    read_target >> analyze_plan
+    analyze_plan >> apply_changes
+
+    # Create flow
+    return Flow(start=read_target)
+
+
 def create_search_agent() -> Flow:
     # Create nodes
     # do a search for string
@@ -957,7 +1027,14 @@ def create_main_flow() -> Flow:
     edit_agent = create_edit_agent()
     format_response = FormatResponseNode()
     docstring_node = SearchDocstring()
-    # Connect main agent to action nodes
+
+    compile_file_node = CompileFileNode()
+    fix_code_node = FixCodeNode()
+    main_agent - "validate_code" >> compile_file_node
+    compile_file_node - "compilation_error" >> fix_code_node
+    compile_file_node - "compilation_success" >> main_agent
+    fix_code_node >> compile_file_node
+
     main_agent - "create_new_file" >> create_new_file
     main_agent - "read_file" >> read_action
     main_agent - "grep_search" >> grep_action

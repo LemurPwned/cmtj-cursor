@@ -6,6 +6,7 @@ Read this very carefully
 2. Pay attention to units from the Parameters sections.
 3. When generating code you have to use `cmtj` library.
 4. Make sure you generate a code based on some example. If you can't find exact example, combine real code to create the simulation code.
+5. Before returning the code to the user and finishing, try to fix all the code errors
 
 # Glossary
 
@@ -40,10 +41,10 @@ Below we give a rundown of parameters used for the simulation
 
 Every simulation in cmtj must have one of the `Layer` objects.
 
-The Layer object can be either of type:
+The Layer object can constructed in 3 ways:
 - `Layer` -- default layer
-- `LayerSOT` -- layer for SOT applications
-- `LayerSTT` -- layer for STT applications
+- `Layer.createSOTLayer` -- layer for SOT applications
+- `Layer.createSTTLayer` -- layer for STT applications
 
 Given the layers, you can create a `Junction` object.
 Junction is composed of at least one FM layer of any type.
