@@ -33,8 +33,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
         history_str += f"- Reason: {action['reason']}\n"
 
         # Add parameters
-        params = action.get("params", {})
-        if params:
+        if params := action.get("params", {}):
             history_str += "- Parameters:\n"
             for k, v in params.items():
                 history_str += f"  - {k}: {v}\n"
@@ -408,6 +407,51 @@ class FixCodeNode(Node):
         # return exec_res[0]
 
 
+class QueryClassificationNode(Node):
+    def prep(self, shared: dict[str, Any]) -> str:
+        # Get parameters from the last history entry
+        history = shared.get("history", [])
+        if not history:
+            raise ValueError("No history found")
+
+        last_action = history[-1]
+        if user_query := last_action["params"].get("user_query"):
+            return user_query
+        raise ValueError("Missing user_query parameter")
+
+    def exec(self, user_query: str) -> str:
+        PROMPT = f"""
+        You are an expert in decoding user intent. The user gives a prompt or a question.
+        Determine whether the user is asking for code generation, or whether they are simply
+        asking a question about the code or methodology in the field of spintronics.
+
+        If the user is asking for code generation, return "code_generation".
+        If the user is asking a question about the code or methodology in the field of spintronics, return "question".
+        Return only the query classification, no other text.
+
+        Example:
+        User query: "Create a PIMM simulation with 3 layer stack with params Ms = 1T, 2T, 3T,
+                    in plane Ku = 10kJ/m^3, 20kJ/m^3, 30kJ/m^3"
+        Classification: "code_generation"
+
+        User query: "What is the meaning of the variable 'Ms' in the code?"
+        Classification: "question"
+
+        User query: "What is PIMM simulation?"
+        Classification: "question"
+
+        User query: {user_query}
+        """
+        return call_llm(PROMPT)
+
+    def post(self, shared: dict[str, Any], prep_res: str, exec_res: str) -> str:
+        if history := shared.get("history", []):
+            history[-1]["result"] = {
+                "query_classification": exec_res,
+            }
+        return exec_res
+
+
 def main_flow():
     main_agent = MainDecisionAgent()
     read_action = ReadFileAction()
@@ -415,6 +459,10 @@ def main_flow():
     list_dir_action = ListDirAction()
     format_response = FormatResponseNode()
     docstring_node = SearchDocstring()
+    # query_classification_node = QueryClassificationNode()
+
+    # query_classification_node - "code_generation" >> main_agent
+    # query_classification_node - "question" >> qa_agent
 
     compile_file_node = CompileFileNode()
     fix_code_node = FixCodeNode()
