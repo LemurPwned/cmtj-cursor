@@ -205,11 +205,16 @@ Available tools:
    - Result: Returns the signature and the docstring of the class or function
 
 5. finish: End the process and provide final code output
-   - No parameters required
+   - Parameters: [Optional] -- final version of the code
    - Example:
      tool: finish
      reason: I have completed the requested task of finding all logger instances
-     params: {{}}
+     params:
+       final_version: |
+         Here is the final version of the code:
+         ```python
+         ...
+         ```
 
 Respond with a YAML object containing:
 ```yaml
@@ -226,7 +231,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 
         # Call LLM to decide action
         response = call_llm(prompt)
-        if "```python" in response:
+        if "```python" in response and "tool: finish" not in response.lower():
             # we actually got python code, so we need to validate it and correct it if needed
             python_blocks = response.split("```python")
             if len(python_blocks) > 1:
@@ -264,18 +269,25 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
                 logger.error(f"YAML parsing error: {str(e)}")
                 logger.error(f"LLM Response: {response}")
                 logger.error(f"Extracted YAML content: {yaml_content}")
-                raise ValueError(f"Invalid YAML format in LLM response: {str(e)}") from e
-
+                # raise ValueError(
+                #     f"Invalid YAML format in LLM response: {str(e)}"
+                # ) from e
+                return {
+                    "tool": "finish",
+                    "reason": yaml_content,
+                }
             # Validate the required fields
-            assert "tool" in decision, "Tool name is missing"
-            assert "reason" in decision, "Reason is missing"
+            # assert "tool" in decision, "Tool name is missing"
+            # assert "reason" in decision, "Reason is missing"
+            if "tool" not in decision or "reason" not in decision:
+                return {
+                    "tool": "finish",
+                    "reason": yaml_content,
+                }
 
             # For tools other than "finish", params must be present
-            if decision["tool"] != "finish":
-                assert "params" in decision, "Parameters are missing"
-            else:
-                decision["params"] = {}
-
+            # if decision["tool"] != "finish":
+            # assert "params" in decision, "Parameters are missing"
             return decision
         else:
             logger.error(f"No YAML content found in LLM response: {response}")
@@ -491,6 +503,7 @@ if __name__ == "__main__":
     )
     query_question = "What is CIMS simulation? "
     query = query_question
+    query = query_code
     shared = {
         "user_query": query,
         "working_dir": "/Users/jm/repos/cmtj-cursor/_cmtj",

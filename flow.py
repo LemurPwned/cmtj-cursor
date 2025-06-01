@@ -752,7 +752,7 @@ class FormatResponseNode(Node):
 
         # Generate a summary of actions for the LLM using the utility function
         actions_summary = format_history_summary(history)
-
+        final_version = history[-1].get("params", {}).get("final_version", "")
         # Prompt for the LLM to generate the final response
         prompt = f"""
 You are a coding assistant. You have just performed a series of actions based on the
@@ -773,13 +773,25 @@ IMPORTANT:
 """
 
         # Call LLM to generate response
-        return call_llm(prompt)
+        return {
+            "response": call_llm(prompt),
+            "final_version": final_version,
+        }
 
-    def post(self, shared: dict[str, Any], prep_res: list[dict[str, Any]], exec_res: str) -> str:
-        logger.info(f"###### Final Response Generated ######\n{exec_res}\n###### End of Response ######")
-
+    def post(
+        self,
+        shared: dict[str, Any],
+        prep_res: list[dict[str, Any]],
+        exec_res: dict[str, Any],
+    ) -> str:
         # Store response in shared
-        shared["response"] = exec_res
+        shared["response"] = exec_res["response"]
+        if final_version := exec_res.get("final_version", ""):
+            if "```python" not in final_version:
+                final_version = f"```python\n{final_version}\n```"
+            shared["response"] += f"\n\n{final_version}"
+        resp = exec_res["response"]
+        logger.info(f"###### Final Response Generated ######\n{resp}\n###### End of Response ######")
 
         return "done"
 
