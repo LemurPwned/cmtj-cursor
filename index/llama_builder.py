@@ -14,7 +14,10 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 load_dotenv()
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
-Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+Settings.embed_model = HuggingFaceEmbedding(
+    # model_name="BAAI/bge-small-en-v1.5"
+    model_name="Alibaba-NLP/gte-modernbert-base",
+)
 
 
 def build_doc_index() -> VectorStoreIndex:
@@ -30,9 +33,15 @@ def build_doc_index() -> VectorStoreIndex:
 
     # Build the index if not cached
     usual_docs = SimpleDirectoryReader(
-        "./_cmtj/docs", recursive=True, required_exts=[".md", ".txt", ".ipynb"]
+        "./_cmtj/docs",
+        recursive=True,
+        required_exts=[
+            ".md",
+            ".txt",
+        ],
     ).load_data()
     knowledge_base_docs = SimpleDirectoryReader("./knowledge_base", recursive=True, required_exts=[".pdf"]).load_data()
+
     usual_docs.extend(knowledge_base_docs)
     doc_index = VectorStoreIndex.from_documents(usual_docs, show_progress=True)
     doc_index.storage_context.persist(persist_dir=doc_dir)
@@ -46,8 +55,15 @@ SEARCH_ENGINE = DOC_INDEX.as_query_engine(
     include_metadata=True,
     node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.5)],
 )
+RETRIEVER = DOC_INDEX.as_retriever(similarity_top_k=5)
 print("Doc index built")
 
 
 if __name__ == "__main__":
-    print(SEARCH_ENGINE.query("What is PIMM simulation?"))
+    retriever = DOC_INDEX.as_retriever(similarity_top_k=5)
+    results = retriever.retrieve("What is PIMM simulation?")
+    for r in results:
+        txt = r.text.replace("\n", " ")
+        print(f"{txt} [source: {r.metadata}]")
+        print(r.metadata)
+        print(r.score)

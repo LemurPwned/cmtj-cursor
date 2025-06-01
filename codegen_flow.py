@@ -11,6 +11,7 @@ from flow import (
     ListDirAction,
     ReadFileAction,
 )
+from search_agent import qa_agent
 from utils.call_llm import call_llm
 from utils.compile_ops import validate_code
 from utils.get_rules import get_rules
@@ -410,14 +411,9 @@ class FixCodeNode(Node):
 class QueryClassificationNode(Node):
     def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
-        history = shared.get("history", [])
-        if not history:
-            raise ValueError("No history found")
-
-        last_action = history[-1]
-        if user_query := last_action["params"].get("user_query"):
+        if user_query := shared.get("user_query", ""):
             return user_query
-        raise ValueError("Missing user_query parameter")
+        raise ValueError("No user query found")
 
     def exec(self, user_query: str) -> str:
         PROMPT = f"""
@@ -442,7 +438,9 @@ class QueryClassificationNode(Node):
 
         User query: {user_query}
         """
-        return call_llm(PROMPT)
+        resp = call_llm(PROMPT)
+        logger.debug(f"QueryClassificationNode: {resp}")
+        return resp
 
     def post(self, shared: dict[str, Any], prep_res: str, exec_res: str) -> str:
         if history := shared.get("history", []):
@@ -459,10 +457,10 @@ def main_flow():
     list_dir_action = ListDirAction()
     format_response = FormatResponseNode()
     docstring_node = SearchDocstring()
-    # query_classification_node = QueryClassificationNode()
-
-    # query_classification_node - "code_generation" >> main_agent
-    # query_classification_node - "question" >> qa_agent
+    query_classification_node = QueryClassificationNode()
+    qa_agent_flow = qa_agent()
+    query_classification_node - "code_generation" >> main_agent
+    query_classification_node - "question" >> qa_agent_flow
 
     compile_file_node = CompileFileNode()
     fix_code_node = FixCodeNode()
@@ -483,13 +481,18 @@ def main_flow():
     list_dir_action >> main_agent
     docstring_node >> main_agent
 
-    return Flow(start=main_agent)
+    return Flow(start=query_classification_node)
 
 
 if __name__ == "__main__":
+    query_code = (
+        "Create sample code using cmtj library in Python for CIMS simulation with 2 "
+        "layers where first has Ms=1.2T, Ku = 3.2kJ/m^3 PMA and the second has Ms = 1.6T, Ku = 6.4kJ/m^3"
+    )
+    query_question = "What is CIMS simulation? "
+    query = query_question
     shared = {
-        "user_query": "Create sample code using cmtj library in Python for CIMS simulation with 2 "
-        "layers where first has Ms=1.2T, Ku = 3.2kJ/m^3 PMA and the second has Ms = 1.6T, Ku = 6.4kJ/m^3",
+        "user_query": query,
         "working_dir": "/Users/jm/repos/cmtj-cursor/_cmtj",
         "history": [],
         "response": None,

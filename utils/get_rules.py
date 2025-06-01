@@ -1,4 +1,4 @@
-RULES_FILE = "rules.txt"
+RULES_FILE = "./knowledge_base/rules.txt"
 
 
 def get_rules() -> str:

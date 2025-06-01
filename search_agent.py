@@ -1,10 +1,10 @@
-from typing import Any, list
+from typing import Any
 
 import yaml
 from loguru import logger
 from pocketflow import BatchNode, Flow, Node
 
-from index.llama_builder import SEARCH_ENGINE
+from index.llama_builder import RETRIEVER
 from utils.call_llm import call_llm
 
 
@@ -23,7 +23,7 @@ Given the user question: "{user_query}"
 Generate 2-3 specific sub-queries that would help provide a comprehensive answer.
 These sub-queries should explore different aspects, contexts, or related information.
 If the user query contains an acronym, make sure you ask for the meaning of the acronym.
-
+The context of the question is always either CMTJ library, spintronics, or magnetic physics and materials.
 Output in YAML format:
 ```yaml
 main_query: "{user_query}"
@@ -67,10 +67,20 @@ class BatchSearchDocuments(BatchNode):
         # Placeholder for actual llamaindex search implementation
         try:
             # Replace with actual llamaindex search call
-            search_results = SEARCH_ENGINE.query(query)
+            search_results = RETRIEVER.retrieve(query)
+            search_results = [r for r in search_results if r.score > 0.5][:5]
+            res_content = "Here are the search results:\n"
+            for i, r in enumerate(search_results):
+                txt = r.text.replace("\n", " ")
+                mtdata = (
+                    f"Source [{r.metadata.get('file_name', 'unknown')}]".replace(".md", "")
+                    .replace(".txt", "")
+                    .replace(".pdf", "")
+                )
+                res_content += f"Context fragment {i+1}:\n{txt}\n{mtdata}\n\n"
             # For now, simulating search results
-            logger.warning(f"Search results for query: {query}: {search_results}")
-            return {"query": query, "results": search_results, "success": True}
+            logger.warning(f"Search results for query: {query}: {res_content}")
+            return {"query": query, "results": res_content, "success": True}
         except Exception as e:
             return {
                 "query": query,
@@ -128,7 +138,8 @@ Instructions:
 2. Provide a clear, well-structured answer
 3. If there are conflicting information, mention it
 4. Cite which sub-queries contributed to different parts of your answer when relevant
-
+5. When giving the final answer, make sure to pass the exact source of the information
+    in the form it has been provided to you
 Final Answer:
 """
 
