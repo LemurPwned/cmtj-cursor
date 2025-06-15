@@ -6,10 +6,10 @@ from loguru import logger
 from pocketflow import Flow, Node
 
 from flow import (
-    FormatResponseNode,
     GrepSearchAction,
     ListDirAction,
     ReadFileAction,
+    build_mermaid,
 )
 from search_agent import qa_agent
 from utils.call_llm import call_llm
@@ -29,7 +29,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
 
     for i, action in enumerate(history):
         # Header for all entries - removed timestamp
-        history_str += f"Action {i+1}:\n"
+        history_str += f"Action {i + 1}:\n"
         history_str += f"- Tool: {action['tool']}\n"
         history_str += f"- Reason: {action['reason']}\n"
 
@@ -55,7 +55,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                     history_str += f"- Matches: {len(matches)}\n"
                     # Show all matches without limiting to first 3
                     for j, match in enumerate(matches):
-                        history_str += f"  {j+1}. {match.get('file')}:{match.get('line')}: {match.get('content')}\n"
+                        history_str += f"  {j + 1}. {match.get('file')}:{match.get('line')}: {match.get('content')}\n"
                 elif action["tool"] == "list_dir" and success:
                     # Get the tree visualization string
                     tree_visualization = result.get("tree_visualization", "")
@@ -82,7 +82,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                     history_str += f"- API Matches: {len(matches)}\n"
                     # Show all matches with their details
                     for j, match in enumerate(matches):
-                        history_str += f"  {j+1}. {match.get('name')} (score: {match.get('match_score', 0)})\n"
+                        history_str += f"  {j + 1}. {match.get('name')} (score: {match.get('match_score', 0)})\n"
 
                         # Show match reasons
                         reasons = match.get("match_reasons", [])
@@ -116,7 +116,7 @@ def format_history_summary(history: list[dict[str, Any]]) -> str:
                         if match.get("methods"):
                             methods = match.get("methods", [])
                             if len(methods) > 5:
-                                methods_str = ", ".join(methods[:5]) + f" (and {len(methods)-5} more)"
+                                methods_str = ", ".join(methods[:5]) + f" (and {len(methods) - 5} more)"
                             else:
                                 methods_str = ", ".join(methods)
                             history_str += f"     Methods: {methods_str}\n"
@@ -139,12 +139,13 @@ class MainDecisionAgent(Node):
     def prep(self, shared: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         # Get user query and history
         user_query = shared.get("user_query", "")
+        model = shared.get("model", "o4-mini")
         history = shared.get("history", [])
 
-        return user_query, history
+        return user_query, model, history
 
-    def exec(self, inputs: tuple[str, list[dict[str, Any]]]) -> dict[str, Any]:
-        user_query, history = inputs
+    def exec(self, inputs: tuple[str, str, list[dict[str, Any]]]) -> dict[str, Any]:
+        user_query, model, history = inputs
         logger.info(f"MainDecisionAgent: Analyzing user query: {user_query}")
 
         # Format history using the utility function with 'basic' detail level
@@ -230,7 +231,7 @@ If you believe no more actions are needed, use "finish" as the tool and explain 
 """  # noqa: E501
 
         # Call LLM to decide action
-        response = call_llm(prompt)
+        response = call_llm(prompt, model=model)
         if "```python" in response and "tool: finish" not in response.lower():
             # we actually got python code, so we need to validate it and correct it if needed
             python_blocks = response.split("```python")
@@ -393,6 +394,7 @@ class FixCodeNode(Node):
             return {
                 "code_content": code_content,
                 "compilation_errors": compilation_errors,
+                "model": shared.get("model", "o4-mini"),
             }
         raise ValueError("Missing code_content or compilation_errors parameter")
 
@@ -410,7 +412,7 @@ class FixCodeNode(Node):
         Code:
         {params.get("code_content", "")}
         """
-        return call_llm(PROMPT)
+        return call_llm(PROMPT, model=params.get("model", "o4-mini"))
 
     def post(self, shared: dict[str, Any], prep_res: str, exec_res: tuple[str, bool]) -> str:
         if history := shared.get("history", []):
@@ -424,10 +426,15 @@ class QueryClassificationNode(Node):
     def prep(self, shared: dict[str, Any]) -> str:
         # Get parameters from the last history entry
         if user_query := shared.get("user_query", ""):
-            return user_query
+            return {
+                "user_query": user_query,
+                "model": shared.get("model", "o4-mini"),
+            }
         raise ValueError("No user query found")
 
-    def exec(self, user_query: str) -> str:
+    def exec(self, params: dict[str, Any]) -> str:
+        user_query = params["user_query"]
+        model = params["model"]
         PROMPT = f"""
         You are an expert in decoding user intent. The user gives a prompt or a question.
         Determine whether the user is asking for code generation, or whether they are simply
@@ -450,7 +457,7 @@ class QueryClassificationNode(Node):
 
         User query: {user_query}
         """
-        resp = call_llm(PROMPT)
+        resp = call_llm(PROMPT, model=model)
         logger.debug(f"QueryClassificationNode: {resp}")
         return resp
 
@@ -462,7 +469,106 @@ class QueryClassificationNode(Node):
         return exec_res
 
 
-def main_flow():
+class FormatResponseNode(Node):
+    def prep(self, shared: dict[str, Any]) -> list[dict[str, Any]]:
+        # Get history
+        if history := shared.get("history", []):
+            return {
+                "history": history,
+                "model": shared.get("model", "o4-mini"),
+            }
+        raise ValueError("No history found")
+
+    def exec(self, params: dict[str, Any]) -> str:
+        history = params["history"]
+        model = params["model"]
+        # If no history, return a generic message
+        logger.warning(f"FormatResponseNode: {history}")
+
+        # Generate a summary of actions for the LLM using the utility function
+        actions_summary = format_history_summary(history)
+        final_version = history[-1].get("params", {}).get("final_version", "")
+        # Prompt for the LLM to generate the final response
+        prompt = f"""
+You are a coding assistant. You have just performed a series of actions based on the
+user's request. Summarize what you did in a clear, helpful response.
+
+Here are the actions you performed:
+{actions_summary}
+
+Generate a comprehensive yet concise response that explains:
+1. What actions were taken
+2. What was found or modified
+3. Any next steps the user might want to take
+
+IMPORTANT:
+- Focus on the outcomes and results, not the specific tools used
+- Write as if you are directly speaking to the user
+- When providing code examples or structured information, use YAML format enclosed in triple backticks
+
+When you provide final code snippet, use YAML format enclosed in triple backticks.
+
+Example:
+```yaml
+summary: |
+  ...
+final_code_version: |
+  ...
+```
+If there's no final code snippet, just provide the summary.
+
+Example:
+```yaml
+summary: |
+  My response is
+```
+"""
+
+        # Call LLM to generate response
+        response = call_llm(prompt, model=model)
+
+        # Parse the response to extract summary and final code version
+        try:
+            if "```yaml" in response:
+                yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+                parsed = yaml.safe_load(yaml_str)
+                summary = parsed.get("summary", "").strip()
+                final_code = parsed.get("final_code_version", "").strip()
+
+                # Format the response
+                formatted_response = summary
+                if final_code:
+                    formatted_response += f"\n\nHere's the final code:\n```python\n{final_code}\n```"
+            else:
+                formatted_response = response
+        except Exception as e:
+            logger.error(f"Error parsing response: {e}")
+            formatted_response = response
+
+        return {
+            "response": formatted_response,
+            "final_version": final_version,
+        }
+
+    def post(
+        self,
+        shared: dict[str, Any],
+        prep_res: list[dict[str, Any]],
+        exec_res: dict[str, Any],
+    ) -> str:
+        # Store response in shared
+        shared["response"] = exec_res["response"]
+        if final_version := exec_res.get("final_version", ""):
+            if "```python" not in final_version:
+                final_version = f"```python\n{final_version}\n```"
+            shared["response"] += f"\n\n{final_version}"
+        resp = exec_res["response"]
+        logger.info(f"###### Final Response Generated ######\n{resp}\n###### End of Response ######")
+
+        return resp
+
+
+def main_flow(enable_web_search: bool = True):
     main_agent = MainDecisionAgent()
     read_action = ReadFileAction()
     grep_action = GrepSearchAction()
@@ -470,7 +576,7 @@ def main_flow():
     format_response = FormatResponseNode()
     docstring_node = SearchDocstring()
     query_classification_node = QueryClassificationNode()
-    qa_agent_flow = qa_agent()
+    qa_agent_flow = qa_agent(allow_web_search=enable_web_search)
     query_classification_node - "code_generation" >> main_agent
     query_classification_node - "question" >> qa_agent_flow
 
@@ -512,4 +618,8 @@ if __name__ == "__main__":
     }
 
     flow = main_flow()
+    diagram = build_mermaid(flow)
+    with open("codegen_flow.md", "w") as f:
+        f.write(f"```mermaid\n{diagram}\n```")
+
     flow.run(shared=shared)

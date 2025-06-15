@@ -2,5 +2,16 @@ cmtj/
 logs/
 llm_cache.json
 Makefile
-assets/
 .env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.ruff_cache/
+.git/
+.DS_Store
+*.log
+.cursor-cmtj/
+coding_agent.log
