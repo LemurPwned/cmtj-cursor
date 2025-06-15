@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  cmtj-chat:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount the _cmtj directory to persist generated code
+      - ./_cmtj:/app/_cmtj
+      # Mount logs directory to persist logs
+      - ./logs:/app/logs
+    environment:
+      - LOGURU_LEVEL=INFO
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    restart: unless-stopped
+    container_name: cmtj-chat-app
+
+  # Alternative service for CLI mode
+  cmtj-cli:
+    build: .
+    volumes:
+      - ./_cmtj:/app/_cmtj
+      - ./logs:/app/logs
+    environment:
+      - LOGURU_LEVEL=INFO
+    command: ["python", "main.py", "--interactive", "--working-dir", "./cmtj"]
+    stdin_open: true
+    tty: true
+    container_name: cmtj-cli-app
+    profiles:
+      - cli
